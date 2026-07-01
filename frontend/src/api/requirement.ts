@@ -70,12 +70,39 @@ export interface GeneratePrdPayload {
   operatorId?: number
 }
 
+export interface ConfirmPrdPayload {
+  projectId: string
+  prdId: string
+  operatorId?: number
+}
+
+export interface GeneratePrototypePayload {
+  projectId: string
+  prdId?: string
+  operatorId?: number
+}
+
 export interface PrdDocumentResult {
   id: string
   projectId: string
   requirementId: string
   taskId?: string
   title: string
+  content: string
+  status: string
+  versionNo: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PrototypeArtifactResult {
+  id: string
+  projectId: string
+  requirementId: string
+  prdId: string
+  taskId?: string
+  title: string
+  prototypeType: string
   content: string
   status: string
   versionNo: string
@@ -95,6 +122,20 @@ export function generatePrd(payload: GeneratePrdPayload) {
   })
 }
 
+export function confirmPrd(payload: ConfirmPrdPayload) {
+  return http.post<PrdDocumentResult, PrdDocumentResult>('/prd/confirm', payload)
+}
+
 export function getLatestPrd(projectId: string) {
   return http.get<PrdDocumentResult, PrdDocumentResult>(`/prd/latest/${projectId}`)
+}
+
+export function generatePrototype(payload: GeneratePrototypePayload) {
+  return http.post<PrototypeArtifactResult, PrototypeArtifactResult>('/prototype/generate', payload, {
+    timeout: 180000,
+  })
+}
+
+export function getLatestPrototype(projectId: string) {
+  return http.get<PrototypeArtifactResult, PrototypeArtifactResult>(`/prototype/latest/${projectId}`)
 }

@@ -2,6 +2,7 @@ package com.forgeflow.admin.controller;
 
 import com.forgeflow.admin.service.PrdService;
 import com.forgeflow.common.annotation.EnableResponseResult;
+import com.forgeflow.pojo.vo.req.ReqConfirmPrdVo;
 import com.forgeflow.pojo.vo.req.ReqGeneratePrdVo;
 import com.forgeflow.pojo.vo.resp.RespPrdDocumentVo;
 import jakarta.annotation.Resource;
@@ -24,6 +25,11 @@ public class PrdController {
     @PostMapping("/generate")
     public RespPrdDocumentVo generate(@RequestBody @Valid ReqGeneratePrdVo reqVo) {
         return prdService.generate(reqVo);
+    }
+
+    @PostMapping("/confirm")
+    public RespPrdDocumentVo confirm(@RequestBody @Valid ReqConfirmPrdVo reqVo) {
+        return prdService.confirm(reqVo);
     }
 
     @GetMapping("/latest/{projectId}")

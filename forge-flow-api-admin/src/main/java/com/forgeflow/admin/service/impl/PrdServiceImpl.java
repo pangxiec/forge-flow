@@ -16,6 +16,7 @@ import com.forgeflow.dao.mapper.PrdDocumentMapper;
 import com.forgeflow.dao.mapper.ProjectMapper;
 import com.forgeflow.dao.mapper.RequirementMapper;
 import com.forgeflow.pojo.vo.req.ReqGeneratePrdVo;
+import com.forgeflow.pojo.vo.req.ReqConfirmPrdVo;
 import com.forgeflow.pojo.vo.resp.RespPrdDocumentVo;
 import jakarta.annotation.Resource;
 import java.time.LocalDateTime;
@@ -27,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PrdServiceImpl implements PrdService {
 
     private static final String PRD_STATUS_REVIEWING = "PRD_REVIEWING";
+    private static final String PRD_STATUS_CONFIRMED = "PRD_CONFIRMED";
     private static final String TASK_TYPE_PRD_GENERATE = "PRD";
     private static final String TASK_STATUS_RUNNING = "RUNNING";
     private static final String TASK_STATUS_SUCCESS = "SUCCESS";
@@ -94,6 +96,28 @@ public class PrdServiceImpl implements PrdService {
         RespPrdDocumentVo respVo = convert(prdDocument);
         respVo.setTaskId(task.getId());
         return respVo;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public RespPrdDocumentVo confirm(ReqConfirmPrdVo reqVo) {
+        Project project = getProject(reqVo.getProjectId());
+        PrdDocument prdDocument = prdDocumentMapper.selectById(reqVo.getPrdId());
+        if (prdDocument == null || !project.getId().equals(prdDocument.getProjectId())) {
+            throw new BizException("prd document not found");
+        }
+        prdDocument.setStatus(PRD_STATUS_CONFIRMED);
+        prdDocument.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
+        prdDocumentMapper.updateById(prdDocument);
+
+        project.setCurrentStage(ProjectStatusEnum.PRD_FROZEN.getCode());
+        project.setStatus(ProjectStatusEnum.PRD_FROZEN.getCode());
+        project.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
+        projectMapper.updateById(project);
+
+        auditLogService.record(operatorId(reqVo.getOperatorId(), project), UserRoleEnum.PRODUCT_MANAGER.getCode(),
+                "CONFIRM_PRD", "PRD_DOCUMENT", prdDocument.getId(), null, prdDocument.getTitle());
+        return convert(prdDocument);
     }
 
     @Override

@@ -1,0 +1,21 @@
+CREATE TABLE prototype_artifact (
+  id BIGINT PRIMARY KEY COMMENT '主键ID',
+  project_id BIGINT NOT NULL COMMENT '项目ID',
+  requirement_id BIGINT NOT NULL COMMENT '需求ID',
+  prd_id BIGINT NOT NULL COMMENT 'PRD文档ID',
+  title VARCHAR(128) NOT NULL COMMENT '原型标题',
+  prototype_type VARCHAR(64) NOT NULL COMMENT '原型类型',
+  content MEDIUMTEXT NOT NULL COMMENT '原型内容',
+  status VARCHAR(64) NOT NULL COMMENT '原型状态',
+  version_no VARCHAR(32) NOT NULL COMMENT '版本号',
+  created_at DATETIME NOT NULL COMMENT '创建时间',
+  updated_at DATETIME NOT NULL COMMENT '更新时间',
+  created_by BIGINT NULL COMMENT '创建人ID',
+  updated_by BIGINT NULL COMMENT '更新人ID',
+  deleted TINYINT NOT NULL DEFAULT 0 COMMENT '是否删除：0否，1是',
+  version INT NOT NULL DEFAULT 1 COMMENT '数据版本号',
+  KEY idx_prototype_project_id (project_id),
+  KEY idx_prototype_requirement_id (requirement_id),
+  KEY idx_prototype_prd_id (prd_id),
+  KEY idx_prototype_status (status)
+) COMMENT='原型产物表';
