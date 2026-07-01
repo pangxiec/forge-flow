@@ -276,7 +276,7 @@ const router = useRouter()
 
 const navItems = [
   { label: '项目工作台', meta: 'Command', icon: Grid, active: true, path: '/' },
-  { label: '需求与 PRD', meta: 'Spec Flow', icon: Document, active: false, path: '/requirements/upload' },
+  { label: '需求与 PRD', meta: 'Spec Flow', icon: Document, active: false, path: '/requirements/prd-agent' },
   { label: '原型与架构', meta: 'Design Gate', icon: Monitor, active: false, path: '/' },
   { label: 'Git 交付', meta: 'Gitea Sync', icon: Connection, active: false, path: '/' },
   { label: '知识库', meta: 'Standards', icon: Notebook, active: false, path: '/' },

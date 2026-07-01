@@ -1,7 +1,7 @@
 import { http } from './http'
 
 export interface RequirementUploadPayload {
-  projectId: number
+  projectId: string
   title: string
   sourceType: string
   priority: string
@@ -16,7 +16,7 @@ export interface RequirementUploadPayload {
 }
 
 export interface RequirementUploadResult {
-  requirementId: number
+  requirementId: string
   versionNo: string
   status: 'DRAFT' | 'REQUIREMENT_ANALYZING' | 'REQUIREMENT_REVIEWING'
   materialCount: number
@@ -45,4 +45,52 @@ export function uploadRequirement(payload: RequirementUploadPayload) {
       'Content-Type': 'multipart/form-data',
     },
   })
+}
+
+export interface RequirementAnalysisResult {
+  requirementId: string
+  taskId: string
+  title: string
+  status: string
+  structuredSummary: string
+  missingInfo: string
+  clarificationQuestions: string
+  analyzedAt: string
+}
+
+export interface RequirementAnalyzePayload {
+  projectId: string
+  requirementId?: string
+  operatorId?: number
+}
+
+export interface GeneratePrdPayload {
+  projectId: string
+  requirementId?: string
+  operatorId?: number
+}
+
+export interface PrdDocumentResult {
+  id: string
+  projectId: string
+  requirementId: string
+  taskId?: string
+  title: string
+  content: string
+  status: string
+  versionNo: string
+  createdAt: string
+  updatedAt: string
+}
+
+export function analyzeRequirement(payload: RequirementAnalyzePayload) {
+  return http.post<RequirementAnalysisResult, RequirementAnalysisResult>('/requirement/analyze', payload)
+}
+
+export function generatePrd(payload: GeneratePrdPayload) {
+  return http.post<PrdDocumentResult, PrdDocumentResult>('/prd/generate', payload)
+}
+
+export function getLatestPrd(projectId: string) {
+  return http.get<PrdDocumentResult, PrdDocumentResult>(`/prd/latest/${projectId}`)
 }

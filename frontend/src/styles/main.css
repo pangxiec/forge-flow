@@ -1174,6 +1174,177 @@ textarea {
   line-height: 1.45;
 }
 
+.prd-agent-workspace {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.prd-command-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 0.42fr);
+  gap: 14px;
+  align-items: stretch;
+  padding: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.72)),
+    radial-gradient(circle at 14% 0%, rgba(37, 99, 235, 0.1), transparent 34rem),
+    radial-gradient(circle at 88% 12%, rgba(22, 163, 74, 0.1), transparent 28rem);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  box-shadow: var(--shadow-panel);
+}
+
+.prd-command-copy {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.prd-command-copy h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 25px;
+  line-height: 1.22;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.prd-command-copy p {
+  max-width: 820px;
+  margin: 0;
+  color: var(--color-muted-text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.prd-command-form {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+}
+
+.prd-command-form .el-select {
+  width: 100%;
+}
+
+.prd-command-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.prd-command-actions .el-button {
+  width: 100%;
+}
+
+.prd-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.prd-status-card {
+  min-height: 96px;
+}
+
+.prd-status-card strong {
+  overflow-wrap: anywhere;
+  font-size: 22px;
+}
+
+.prd-agent-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.42fr) minmax(0, 0.58fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.analysis-panel,
+.prd-preview-panel {
+  min-height: 620px;
+}
+
+.analysis-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.analysis-block {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-left: 4px solid var(--color-primary);
+  border-radius: 8px;
+}
+
+.analysis-block.warning {
+  border-left-color: var(--color-warning);
+}
+
+.analysis-block-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #0f172a;
+}
+
+.analysis-block-title .el-icon {
+  color: var(--color-primary);
+  font-size: 18px;
+}
+
+.analysis-block.warning .analysis-block-title .el-icon {
+  color: var(--color-warning);
+}
+
+.analysis-block pre,
+.prd-markdown-preview pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.analysis-block pre {
+  color: #334155;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.prd-preview-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.prd-markdown-preview {
+  max-height: 68vh;
+  overflow: auto;
+  padding: 18px;
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+}
+
+.prd-markdown-preview pre {
+  font-family:
+    "Fira Sans", Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .glass-service-card:hover {
     transform: translate3d(0, -2px, 0) scale(1.01);
@@ -1212,7 +1383,9 @@ textarea {
   .content-grid,
   .ops-grid,
   .upload-hero,
-  .requirement-layout {
+  .requirement-layout,
+  .prd-command-panel,
+  .prd-agent-layout {
     grid-template-columns: 1fr;
   }
 
@@ -1252,6 +1425,7 @@ textarea {
 
   .status-strip,
   .overview-band,
+  .prd-status-grid,
   .security-fields,
   .upload-hero-metrics,
   .form-grid.two-columns,
@@ -1270,6 +1444,15 @@ textarea {
   .sensitive-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .prd-command-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-panel,
+  .prd-preview-panel {
+    min-height: auto;
   }
 
   .workspace {

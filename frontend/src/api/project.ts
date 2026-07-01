@@ -16,6 +16,6 @@ export function listProjects() {
   return http.get<BackendProject[], BackendProject[]>('/project/list')
 }
 
-export function getProject(id: number) {
+export function getProject(id: string) {
   return http.get<BackendProject, BackendProject>(`/project/detail/${id}`)
 }

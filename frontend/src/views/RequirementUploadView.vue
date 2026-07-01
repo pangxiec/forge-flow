@@ -289,7 +289,7 @@ const fileList = ref<UploadUserFile[]>([])
 
 const navItems = [
   { label: '项目工作台', meta: 'Command', icon: Grid, active: false, path: '/' },
-  { label: '需求与 PRD', meta: 'Spec Flow', icon: Document, active: true, path: '/requirements/upload' },
+  { label: '需求与 PRD', meta: 'Spec Flow', icon: Document, active: true, path: '/requirements/prd-agent' },
   { label: '原型与架构', meta: 'Design Gate', icon: Monitor, active: false, path: '/requirements/upload' },
   { label: 'Git 交付', meta: 'Gitea Sync', icon: Connection, active: false, path: '/requirements/upload' },
   { label: '知识库', meta: 'Standards', icon: Notebook, active: false, path: '/requirements/upload' },
@@ -312,7 +312,7 @@ const nextSteps = [
 ]
 
 const form = reactive({
-  projectId: undefined as number | undefined,
+  projectId: undefined as string | undefined,
   title: '',
   sourceType: '文本',
   priority: 'MEDIUM',
@@ -435,12 +435,19 @@ async function submitUpload() {
   submitting.value = true
   try {
     const files = fileList.value.flatMap((file) => (file.raw ? [file.raw as File] : []))
-    await uploadRequirement({
+    const result = await uploadRequirement({
       ...form,
       projectId: form.projectId,
       files,
     })
-    ElMessage.success('需求已上传，正在进入 AI 分析')
+    ElMessage.success('需求已上传，正在打开分析结果')
+    router.push({
+      path: '/requirements/prd-agent',
+      query: {
+        projectId: String(form.projectId),
+        requirementId: String(result.requirementId),
+      },
+    })
   } catch {
     ElMessage.success('需求已保存为本地演示版本，后端接口就绪后可直接联调')
   } finally {

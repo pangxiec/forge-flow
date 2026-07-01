@@ -22,7 +22,7 @@ export type ProjectStage =
   | 'CANCELLED'
 
 export interface ProjectSummary {
-  id: number
+  id: string
   projectName: string
   projectCode: string
   owner: string
@@ -34,13 +34,13 @@ export interface ProjectSummary {
 }
 
 export interface BackendProject {
-  id: number
+  id: string
   projectName: string
   projectCode: string
   description?: string
   currentStage: ProjectStage
   status: ProjectStage
-  managerId: number
+  managerId: string
   createdAt?: string
   updatedAt?: string
 }
