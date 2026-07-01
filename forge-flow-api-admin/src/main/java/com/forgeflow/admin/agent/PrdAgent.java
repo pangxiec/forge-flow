@@ -1,53 +1,103 @@
 package com.forgeflow.admin.agent;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.forgeflow.dao.domain.Requirement;
+import com.forgeflow.third.client.BailianLlmClient;
+import jakarta.annotation.Resource;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
 public class PrdAgent {
 
+    private static final String ANALYSIS_SYSTEM_PROMPT = """
+            你是一位资深的产品需求分析师。请根据用户提供的需求信息进行结构化分析，输出以下三部分内容：
+
+            1. structuredSummary（结构化需求摘要）：对需求标题、来源、优先级、需求方、产品负责人、业务背景、目标与成功标准、范围与边界进行归纳整理，形成条理清晰的结构化摘要，使用Markdown列表格式。
+            2. missingInfo（缺失信息）：识别需求中缺失或不足的关键信息，如期望完成日期、业务背景深度、目标可验收性、范围边界清晰度、补充材料等。如无明显缺失，输出"暂无明显缺失信息"，使用Markdown列表格式。
+            3. clarificationQuestions（待澄清问题）：列出需要与需求方进一步澄清的关键问题，覆盖核心用户场景、交付范围优先级、审批权限规则、异常处理等维度，使用Markdown列表格式。
+
+            请严格以JSON格式返回，不要包含markdown代码块标记或任何其他多余文本，格式如下：
+            {"structuredSummary":"结构化需求摘要内容","missingInfo":"缺失信息内容","clarificationQuestions":"待澄清问题内容"}
+            """;
+
+    @Resource
+    private BailianLlmClient bailianLlmClient;
+
+    @Resource
+    private ObjectMapper objectMapper;
+
     public RequirementAnalysis analyze(Requirement requirement) {
-        List<String> missingItems = new ArrayList<>();
-        if (requirement.getExpectedDate() == null) {
-            missingItems.add("期望完成日期未明确");
-        }
-        if (textLength(requirement.getBackground()) < 30) {
-            missingItems.add("业务背景偏短，需要补充现状、痛点和触发原因");
-        }
-        if (textLength(requirement.getObjective()) < 30) {
-            missingItems.add("目标与成功标准偏短，需要补充可验收指标");
-        }
-        if (textLength(requirement.getScope()) < 20) {
-            missingItems.add("范围与边界偏短，需要补充不包含内容、依赖系统和异常场景");
-        }
-        if (requirement.getMaterialCount() == null || requirement.getMaterialCount() == 0) {
-            missingItems.add("未上传补充材料，可按需补充会议纪要、流程图或截图");
-        }
+        String userPrompt = buildAnalysisUserPrompt(requirement);
+        String llmResponse = bailianLlmClient.chat(ANALYSIS_SYSTEM_PROMPT, userPrompt);
+        return parseAnalysisResponse(llmResponse);
+    }
 
-        String summary = String.join("\n",
-                "- 需求标题：" + requirement.getTitle(),
-                "- 需求来源：" + requirement.getSourceType() + "，优先级：" + requirement.getPriority(),
-                "- 需求方：" + requirement.getRequester() + "，产品负责人：" + requirement.getProductOwner(),
-                "- 业务背景：" + normalize(requirement.getBackground()),
-                "- 目标与成功标准：" + normalize(requirement.getObjective()),
-                "- 范围与边界：" + normalize(requirement.getScope()));
+    private String buildAnalysisUserPrompt(Requirement requirement) {
+        String expectedDate = requirement.getExpectedDate() == null
+                ? "未明确"
+                : requirement.getExpectedDate().format(DateTimeFormatter.ISO_LOCAL_DATE);
+        int materialCount = requirement.getMaterialCount() == null ? 0 : requirement.getMaterialCount();
 
-        List<String> questions = new ArrayList<>();
-        questions.add("核心用户在什么场景下最高频使用该能力？");
-        questions.add("本次需求的必须交付范围和可后置范围分别是什么？");
-        questions.add("有哪些审批、权限、数据留痕或异常处理规则必须在第一版覆盖？");
-        if (requirement.getExpectedDate() == null) {
-            questions.add("业务期望的上线或验收日期是什么？");
-        }
-        if (requirement.getMaterialCount() == null || requirement.getMaterialCount() == 0) {
-            questions.add("是否存在流程图、字段清单、原型草图或历史系统截图可作为补充输入？");
-        }
+        return String.join("\n",
+                "请分析以下需求信息：",
+                "",
+                "需求标题：" + normalize(requirement.getTitle()),
+                "需求来源：" + normalize(requirement.getSourceType()),
+                "优先级：" + normalize(requirement.getPriority()),
+                "需求方：" + normalize(requirement.getRequester()),
+                "产品负责人：" + normalize(requirement.getProductOwner()),
+                "期望完成日期：" + expectedDate,
+                "业务背景：" + normalize(requirement.getBackground()),
+                "目标与成功标准：" + normalize(requirement.getObjective()),
+                "范围与边界：" + normalize(requirement.getScope()),
+                "补充材料数量：" + materialCount);
+    }
 
-        return new RequirementAnalysis(summary, toMarkdownList(missingItems), toMarkdownList(questions));
+    private RequirementAnalysis parseAnalysisResponse(String llmResponse) {
+        try {
+            String json = stripCodeBlock(llmResponse);
+            JsonNode root = objectMapper.readTree(json);
+            String structuredSummary = root.path("structuredSummary").asText("");
+            String missingInfo = root.path("missingInfo").asText("");
+            String clarificationQuestions = root.path("clarificationQuestions").asText("");
+
+            if (structuredSummary.isBlank()) {
+                structuredSummary = llmResponse;
+            }
+            if (missingInfo.isBlank()) {
+                missingInfo = "- 暂无明显缺失信息";
+            }
+            if (clarificationQuestions.isBlank()) {
+                clarificationQuestions = "- 暂无需澄清问题";
+            }
+
+            return new RequirementAnalysis(structuredSummary, missingInfo, clarificationQuestions);
+        } catch (Exception e) {
+            return new RequirementAnalysis(llmResponse, "- 暂无明显缺失信息", "- 暂无需澄清问题");
+        }
+    }
+
+    private String stripCodeBlock(String text) {
+        String trimmed = text.trim();
+        if (trimmed.startsWith("```")) {
+            int firstNewline = trimmed.indexOf('\n');
+            if (firstNewline > 0) {
+                trimmed = trimmed.substring(firstNewline + 1);
+            }
+            if (trimmed.endsWith("```")) {
+                trimmed = trimmed.substring(0, trimmed.length() - 3);
+            }
+            trimmed = trimmed.trim();
+        }
+        int start = trimmed.indexOf('{');
+        int end = trimmed.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            return trimmed.substring(start, end + 1);
+        }
+        return trimmed;
     }
 
     public String generatePrd(Requirement requirement) {
@@ -94,17 +144,6 @@ public class PrdAgent {
                         + "- 生成任务、PRD 文档和审计日志均可追溯。\n"
                         + "- PRD 内容覆盖背景、目标、范围、角色、功能、规则、异常和验收标准。",
                 "## 11. 待澄清问题\n" + analysis.clarificationQuestions());
-    }
-
-    private String toMarkdownList(List<String> items) {
-        if (items.isEmpty()) {
-            return "- 暂无明显缺失信息";
-        }
-        return items.stream().map(item -> "- " + item).reduce((left, right) -> left + "\n" + right).orElse("");
-    }
-
-    private int textLength(String value) {
-        return StringUtils.hasText(value) ? value.trim().length() : 0;
     }
 
     private String normalize(String value) {

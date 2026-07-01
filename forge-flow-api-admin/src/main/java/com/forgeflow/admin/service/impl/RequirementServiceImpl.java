@@ -1,5 +1,6 @@
 package com.forgeflow.admin.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.forgeflow.admin.agent.PrdAgent;
 import com.forgeflow.admin.service.AuditLogService;
@@ -33,7 +34,7 @@ public class RequirementServiceImpl implements RequirementService {
     private static final String TASK_TYPE_PRD_ANALYSIS = "PRD_ANALYSIS";
     private static final String TASK_STATUS_RUNNING = "RUNNING";
     private static final String TASK_STATUS_SUCCESS = "SUCCESS";
-    private static final String LOCAL_RULE_AGENT = "LOCAL_RULE_PRD_AGENT";
+    private static final String BAILIAN_AGENT = "BAILIAN_PRD_AGENT";
 
     @Resource
     private RequirementMapper requirementMapper;
@@ -108,7 +109,7 @@ public class RequirementServiceImpl implements RequirementService {
         task.setTaskType(TASK_TYPE_PRD_ANALYSIS);
         task.setStatus(TASK_STATUS_RUNNING);
         task.setInputArtifactId(requirement.getId());
-        task.setModelName(LOCAL_RULE_AGENT);
+        task.setModelName(BAILIAN_AGENT);
         task.setStartedAt(LocalDateTime.now());
         task.setCreatedBy(project.getManagerId());
         task.setUpdatedBy(project.getManagerId());
@@ -135,14 +136,8 @@ public class RequirementServiceImpl implements RequirementService {
         auditLogService.record(project.getManagerId(), UserRoleEnum.PROJECT_MANAGER.getCode(),
                 "ANALYZE_REQUIREMENT", "GENERATION_TASK", task.getId(), null, requirement.getTitle());
 
-        RespRequirementAnalysisVo respVo = new RespRequirementAnalysisVo();
-        respVo.setRequirementId(requirement.getId());
+        RespRequirementAnalysisVo respVo = BeanUtil.copyProperties(requirement, RespRequirementAnalysisVo.class);
         respVo.setTaskId(task.getId());
-        respVo.setTitle(requirement.getTitle());
-        respVo.setStatus(requirement.getStatus());
-        respVo.setStructuredSummary(requirement.getStructuredSummary());
-        respVo.setMissingInfo(requirement.getMissingInfo());
-        respVo.setClarificationQuestions(requirement.getClarificationQuestions());
         respVo.setAnalyzedAt(task.getFinishedAt());
         return respVo;
     }

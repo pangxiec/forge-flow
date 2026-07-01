@@ -30,7 +30,7 @@ public class PrdServiceImpl implements PrdService {
     private static final String TASK_TYPE_PRD_GENERATE = "PRD";
     private static final String TASK_STATUS_RUNNING = "RUNNING";
     private static final String TASK_STATUS_SUCCESS = "SUCCESS";
-    private static final String LOCAL_RULE_AGENT = "LOCAL_RULE_PRD_AGENT";
+    private static final String BAILIAN_AGENT = "BAILIAN_PRD_AGENT";
 
     @Resource
     private PrdDocumentMapper prdDocumentMapper;
@@ -61,7 +61,7 @@ public class PrdServiceImpl implements PrdService {
         task.setTaskType(TASK_TYPE_PRD_GENERATE);
         task.setStatus(TASK_STATUS_RUNNING);
         task.setInputArtifactId(requirement.getId());
-        task.setModelName(LOCAL_RULE_AGENT);
+        task.setModelName(BAILIAN_AGENT);
         task.setStartedAt(LocalDateTime.now());
         task.setCreatedBy(operatorId(reqVo.getOperatorId(), project));
         task.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
