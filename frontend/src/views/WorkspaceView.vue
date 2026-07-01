@@ -312,7 +312,7 @@ const statusItems = [
 
 const projects = ref<ProjectSummary[]>([
   {
-    id: 1,
+    id: '1',
     projectName: 'AI 全链路平台 MVP',
     projectCode: 'forge-flow-mvp',
     owner: '项目经理',
@@ -323,7 +323,7 @@ const projects = ref<ProjectSummary[]>([
     blockers: 0,
   },
   {
-    id: 2,
+    id: '2',
     projectName: '研发规范知识库',
     projectCode: 'rd-knowledge',
     owner: '产品经理',
@@ -334,7 +334,7 @@ const projects = ref<ProjectSummary[]>([
     blockers: 1,
   },
   {
-    id: 3,
+    id: '3',
     projectName: 'Gitea 交付适配',
     projectCode: 'gitea-delivery',
     owner: '架构师',

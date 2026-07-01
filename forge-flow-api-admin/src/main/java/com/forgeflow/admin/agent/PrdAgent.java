@@ -3,7 +3,8 @@ package com.forgeflow.admin.agent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.forgeflow.dao.domain.Requirement;
-import com.forgeflow.third.client.BailianLlmClient;
+import com.forgeflow.third.llm.LlmChatRequest;
+import com.forgeflow.third.llm.LlmGateway;
 import jakarta.annotation.Resource;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -60,7 +61,7 @@ public class PrdAgent {
             """;
 
     @Resource
-    private BailianLlmClient bailianLlmClient;
+    private LlmGateway llmGateway;
 
     @Resource
     private ObjectMapper objectMapper;
@@ -68,7 +69,12 @@ public class PrdAgent {
     public RequirementAnalysis analyze(Requirement requirement) {
         try {
             String userPrompt = buildAnalysisUserPrompt(requirement);
-            String llmResponse = bailianLlmClient.chat(ANALYSIS_SYSTEM_PROMPT, userPrompt);
+            String llmResponse = llmGateway.chat(LlmChatRequest.builder()
+                    .scene("requirement-analysis")
+                    .systemPrompt(ANALYSIS_SYSTEM_PROMPT)
+                    .userPrompt(userPrompt)
+                    .timeoutSeconds(180)
+                    .build()).getContent();
             return parseAnalysisResponse(llmResponse);
         } catch (Exception e) {
             log.warn("PRD Agent requirement analysis fell back to local rules: {}", e.getMessage());
@@ -144,7 +150,12 @@ public class PrdAgent {
     public String generatePrd(Requirement requirement) {
         RequirementAnalysis analysis = analyze(requirement);
         try {
-            String llmResponse = bailianLlmClient.chat(PRD_SYSTEM_PROMPT, buildPrdUserPrompt(requirement, analysis));
+            String llmResponse = llmGateway.chat(LlmChatRequest.builder()
+                    .scene("prd-generation")
+                    .systemPrompt(PRD_SYSTEM_PROMPT)
+                    .userPrompt(buildPrdUserPrompt(requirement, analysis))
+                    .timeoutSeconds(180)
+                    .build()).getContent();
             String prdMarkdown = stripMarkdownFence(llmResponse);
             if (StringUtils.hasText(prdMarkdown)) {
                 return prdMarkdown;

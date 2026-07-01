@@ -43,6 +43,8 @@ forge-flow:
     api-key: ${FORGE_FLOW_LLM_API_KEY:}
     model: ${FORGE_FLOW_LLM_MODEL:qwen-plus}
     base-url: ${FORGE_FLOW_LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    timeout-seconds: ${FORGE_FLOW_LLM_TIMEOUT_SECONDS:180}
+    max-retries: ${FORGE_FLOW_LLM_MAX_RETRIES:1}
   minio:
     endpoint:
     access-key:

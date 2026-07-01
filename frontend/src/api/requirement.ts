@@ -84,11 +84,15 @@ export interface PrdDocumentResult {
 }
 
 export function analyzeRequirement(payload: RequirementAnalyzePayload) {
-  return http.post<RequirementAnalysisResult, RequirementAnalysisResult>('/requirement/analyze', payload)
+  return http.post<RequirementAnalysisResult, RequirementAnalysisResult>('/requirement/analyze', payload, {
+    timeout: 180000,
+  })
 }
 
 export function generatePrd(payload: GeneratePrdPayload) {
-  return http.post<PrdDocumentResult, PrdDocumentResult>('/prd/generate', payload)
+  return http.post<PrdDocumentResult, PrdDocumentResult>('/prd/generate', payload, {
+    timeout: 180000,
+  })
 }
 
 export function getLatestPrd(projectId: string) {
