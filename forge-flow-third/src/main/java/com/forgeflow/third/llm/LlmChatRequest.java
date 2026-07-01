@@ -12,6 +12,12 @@ public class LlmChatRequest {
 
     private String scene;
 
+    private Long projectId;
+
+    private String bizType;
+
+    private Long bizId;
+
     private String systemPrompt;
 
     private String userPrompt;

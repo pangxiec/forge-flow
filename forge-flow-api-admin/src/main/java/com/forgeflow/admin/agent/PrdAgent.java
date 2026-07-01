@@ -71,6 +71,9 @@ public class PrdAgent {
             String userPrompt = buildAnalysisUserPrompt(requirement);
             String llmResponse = llmGateway.chat(LlmChatRequest.builder()
                     .scene("requirement-analysis")
+                    .projectId(requirement.getProjectId())
+                    .bizType("requirement")
+                    .bizId(requirement.getId())
                     .systemPrompt(ANALYSIS_SYSTEM_PROMPT)
                     .userPrompt(userPrompt)
                     .timeoutSeconds(180)
@@ -152,6 +155,9 @@ public class PrdAgent {
         try {
             String llmResponse = llmGateway.chat(LlmChatRequest.builder()
                     .scene("prd-generation")
+                    .projectId(requirement.getProjectId())
+                    .bizType("requirement")
+                    .bizId(requirement.getId())
                     .systemPrompt(PRD_SYSTEM_PROMPT)
                     .userPrompt(buildPrdUserPrompt(requirement, analysis))
                     .timeoutSeconds(180)

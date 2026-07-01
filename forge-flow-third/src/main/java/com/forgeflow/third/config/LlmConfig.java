@@ -1,6 +1,7 @@
 package com.forgeflow.third.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.forgeflow.dao.mapper.LlmCallLogMapper;
 import com.forgeflow.third.client.BailianLlmClient;
 import com.forgeflow.third.llm.DefaultLlmGateway;
 import com.forgeflow.third.llm.LlmGateway;
@@ -10,6 +11,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -35,8 +37,25 @@ public class LlmConfig {
     }
 
     @Bean
-    public LlmGateway llmGateway(LlmProperties llmProperties, BailianLlmClient bailianLlmClient) {
-        return new DefaultLlmGateway(llmProperties, bailianLlmClient);
+    public LlmGateway llmGateway(
+            LlmProperties llmProperties,
+            BailianLlmClient bailianLlmClient,
+            LlmCallLogMapper llmCallLogMapper,
+            ThreadPoolTaskExecutor llmCallLogExecutor) {
+        return new DefaultLlmGateway(llmProperties, bailianLlmClient, llmCallLogMapper, llmCallLogExecutor);
+    }
+
+    @Bean
+    public ThreadPoolTaskExecutor llmCallLogExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("llm-call-log-");
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(500);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(5);
+        executor.initialize();
+        return executor;
     }
 
     private long resolveTimeoutSeconds(LlmProperties llmProperties) {
