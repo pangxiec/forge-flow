@@ -2,6 +2,7 @@ package com.forgeflow.admin.service;
 
 import com.forgeflow.pojo.vo.req.ReqAnalyzeRequirementVo;
 import com.forgeflow.pojo.vo.resp.RespRequirementAnalysisVo;
+import com.forgeflow.pojo.vo.resp.RespRequirementDetailVo;
 import com.forgeflow.pojo.vo.resp.RespRequirementUploadVo;
 import java.time.LocalDate;
 import java.util.List;
@@ -16,4 +17,8 @@ public interface RequirementService {
     RespRequirementAnalysisVo analyze(ReqAnalyzeRequirementVo reqVo);
 
     RespRequirementAnalysisVo getLatestAnalysis(Long projectId);
+
+    RespRequirementDetailVo getLatest(Long projectId);
+
+    RespRequirementDetailVo getDetail(Long projectId, Long requirementId);
 }

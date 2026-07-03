@@ -43,7 +43,7 @@
         </div>
         <div class="topbar-actions">
           <el-button :icon="UploadFilled" @click="activeFlowStep = 'upload'">上传需求</el-button>
-          <el-button :icon="Refresh" :loading="loadingLatest || loadingPrototype" :disabled="!selectedProjectId" @click="refreshLatestResults">
+          <el-button :icon="Refresh" :loading="loadingRequirement || loadingLatest || loadingPrototype" :disabled="!selectedProjectId" @click="refreshLatestResults">
             刷新结果
           </el-button>
           <el-button type="primary" :icon="DocumentChecked" :loading="generating" :disabled="!selectedProjectId" @click="regeneratePrd">
@@ -93,6 +93,50 @@
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
           <small>{{ item.hint }}</small>
+        </div>
+      </section>
+
+      <section class="panel requirement-record-panel">
+        <div class="panel-header">
+          <div>
+            <h2>需求记录</h2>
+            <p>{{ requirementRecord ? `${requirementRecord.title} / ${requirementRecord.versionNo}` : '选择项目后展示最新上传的需求记录。' }}</p>
+          </div>
+          <div class="requirement-record-tools">
+            <el-tag :type="requirementRecord ? 'success' : 'info'" effect="light">
+              {{ requirementRecord?.status || '暂无需求' }}
+            </el-tag>
+            <el-button :icon="Refresh" :loading="loadingRequirement" :disabled="!selectedProjectId" @click="loadLatestRequirement">
+              刷新
+            </el-button>
+          </div>
+        </div>
+
+        <el-skeleton v-if="loadingRequirement" :rows="4" animated />
+        <el-empty v-else-if="!requirementRecord" description="暂无需求记录" :image-size="82">
+          <el-button type="primary" @click="activeFlowStep = 'upload'">上传需求</el-button>
+        </el-empty>
+        <div v-else class="requirement-record-content">
+          <div class="requirement-record-meta">
+            <div v-for="item in requirementMeta" :key="item.label" class="requirement-record-chip">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+          <div class="requirement-record-sections">
+            <article>
+              <strong>业务背景</strong>
+              <p>{{ requirementRecord.background }}</p>
+            </article>
+            <article>
+              <strong>目标与成功标准</strong>
+              <p>{{ requirementRecord.objective }}</p>
+            </article>
+            <article>
+              <strong>范围与边界</strong>
+              <p>{{ requirementRecord.scope }}</p>
+            </article>
+          </div>
         </div>
       </section>
 
@@ -416,10 +460,13 @@ import {
   getLatestAnalysis,
   getLatestPrd,
   getLatestPrototype,
+  getLatestRequirement,
+  getRequirementDetail,
   uploadRequirement,
   type PrdDocumentResult,
   type PrototypeArtifactResult,
   type RequirementAnalysisResult,
+  type RequirementDetailResult,
 } from '@/api/requirement'
 import { listProjects } from '@/api/project'
 import type { BackendProject } from '@/types/project'
@@ -442,9 +489,11 @@ const selectedProjectId = ref<string>()
 const selectedRequirementId = ref<string>()
 const uploadFormRef = ref<FormInstance>()
 const uploadFileList = ref<UploadUserFile[]>([])
+const requirementRecord = ref<RequirementDetailResult>()
 const analysisResult = ref<RequirementAnalysisResult>()
 const prdDocument = ref<PrdDocumentResult>()
 const prototypeArtifact = ref<PrototypeArtifactResult>()
+const loadingRequirement = ref(false)
 const analysisViewMode = ref('preview')
 const prdViewMode = ref('preview')
 const prototypeViewMode = ref('preview')
@@ -511,6 +560,23 @@ const projectOptions = computed(() =>
 
 const currentProject = computed(() => projects.value.find((project) => project.id === selectedProjectId.value))
 
+const requirementMeta = computed(() => {
+  const record = requirementRecord.value
+  if (!record) {
+    return []
+  }
+  return [
+    { label: '需求ID', value: record.requirementId },
+    { label: '来源类型', value: record.sourceType || '-' },
+    { label: '优先级', value: record.priority || '-' },
+    { label: '需求方', value: record.requester || '-' },
+    { label: '产品负责人', value: record.productOwner || '-' },
+    { label: '期望日期', value: record.expectedDate || '待确认' },
+    { label: '材料数量', value: `${record.materialCount || 0}` },
+    { label: '上传时间', value: formatDateTime(record.createdAt) },
+  ]
+})
+
 const canSubmitUpload = computed(
   () =>
     Boolean(
@@ -533,7 +599,7 @@ const isHtmlPrototype = computed(() => {
 const prototypeFrameHtml = computed(() => (isHtmlPrototype.value ? prototypeArtifact.value?.content || '' : ''))
 
 const flowSteps = computed<FlowStep[]>(() => {
-  const hasRequirement = Boolean(selectedRequirementId.value || analysisResult.value || prdDocument.value)
+  const hasRequirement = Boolean(requirementRecord.value || selectedRequirementId.value || analysisResult.value || prdDocument.value)
   const hasAnalysis = Boolean(analysisResult.value)
   const hasPrd = Boolean(prdDocument.value)
   const prdConfirmed = prdDocument.value?.status === 'PRD_CONFIRMED'
@@ -645,6 +711,7 @@ onMounted(async () => {
   hydrateRouteParams()
   await loadProjects()
   if (selectedProjectId.value) {
+    await loadRequirementRecord(false)
     await loadLatestAnalysis(false)
     await loadLatestPrd(false)
     await loadLatestPrototype(false)
@@ -713,11 +780,13 @@ async function loadProjects() {
 async function handleProjectChange() {
   uploadForm.projectId = selectedProjectId.value
   selectedRequirementId.value = undefined
+  requirementRecord.value = undefined
   analysisResult.value = undefined
   prdDocument.value = undefined
   prototypeArtifact.value = undefined
   activeFlowStep.value = 'analysis'
   if (selectedProjectId.value) {
+    await loadRequirementRecord(false)
     await loadLatestAnalysis(false)
     await loadLatestPrd(false)
     await loadLatestPrototype(false)
@@ -788,6 +857,7 @@ async function submitRequirementInFlow() {
     })
     selectedProjectId.value = uploadForm.projectId
     selectedRequirementId.value = result.requirementId
+    await loadRequirementRecord(false)
     analysisResult.value = undefined
     prdDocument.value = undefined
     prototypeArtifact.value = undefined
@@ -850,6 +920,36 @@ async function loadLatestAnalysis(showMessage = true) {
   }
 }
 
+async function loadRequirementRecord(showMessage = true) {
+  if (!selectedProjectId.value) {
+    return false
+  }
+  loadingRequirement.value = true
+  try {
+    requirementRecord.value = selectedRequirementId.value
+      ? await getRequirementDetail(selectedProjectId.value, selectedRequirementId.value)
+      : await getLatestRequirement(selectedProjectId.value)
+    selectedRequirementId.value = requirementRecord.value.requirementId
+    if (showMessage) {
+      ElMessage.success('已刷新最新需求记录')
+    }
+    return true
+  } catch {
+    requirementRecord.value = undefined
+    if (showMessage) {
+      ElMessage.info('当前项目暂无需求记录，可先上传')
+    }
+    return false
+  } finally {
+    loadingRequirement.value = false
+  }
+}
+
+async function loadLatestRequirement(showMessage = true) {
+  selectedRequirementId.value = undefined
+  return loadRequirementRecord(showMessage)
+}
+
 async function regeneratePrd() {
   if (!selectedProjectId.value) {
     ElMessage.warning('请先选择项目')
@@ -900,6 +1000,7 @@ async function refreshLatestResults() {
   if (!selectedProjectId.value) {
     return
   }
+  await loadRequirementRecord(false)
   await loadLatestAnalysis(false)
   await loadLatestPrd(false)
   await loadLatestPrototype(false)

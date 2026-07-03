@@ -23,6 +23,26 @@ export interface RequirementUploadResult {
   createdAt: string
 }
 
+export interface RequirementDetailResult {
+  requirementId: string
+  projectId: string
+  title: string
+  sourceType: string
+  priority: string
+  requester: string
+  productOwner: string
+  expectedDate?: string
+  background: string
+  objective: string
+  scope: string
+  materialCount: number
+  status: string
+  versionNo: string
+  sensitiveMasked: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export function uploadRequirement(payload: RequirementUploadPayload) {
   const formData = new FormData()
   formData.append('projectId', String(payload.projectId))
@@ -118,6 +138,14 @@ export function analyzeRequirement(payload: RequirementAnalyzePayload) {
 
 export function getLatestAnalysis(projectId: string) {
   return http.get<RequirementAnalysisResult, RequirementAnalysisResult>(`/requirement/latest-analysis/${projectId}`)
+}
+
+export function getLatestRequirement(projectId: string) {
+  return http.get<RequirementDetailResult, RequirementDetailResult>(`/requirement/latest/${projectId}`)
+}
+
+export function getRequirementDetail(projectId: string, requirementId: string) {
+  return http.get<RequirementDetailResult, RequirementDetailResult>(`/requirement/${projectId}/${requirementId}`)
 }
 
 export function generatePrd(payload: GeneratePrdPayload) {

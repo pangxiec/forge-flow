@@ -2,6 +2,7 @@ package com.forgeflow.admin.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.forgeflow.admin.agent.PrdAgent;
+import com.forgeflow.admin.agent.PrdAgentExecution;
 import com.forgeflow.admin.service.AuditLogService;
 import com.forgeflow.admin.service.PrdService;
 import com.forgeflow.common.enums.ProjectStatusEnum;
@@ -69,7 +70,8 @@ public class PrdServiceImpl implements PrdService {
         task.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
         generationTaskMapper.insert(task);
 
-        PrdAgent.RequirementAnalysis analysis = prdAgent.analyze(requirement);
+        PrdAgentExecution execution = prdAgent.run(requirement);
+        PrdAgent.RequirementAnalysis analysis = execution.analysis();
         requirement.setStructuredSummary(analysis.structuredSummary());
         requirement.setMissingInfo(analysis.missingInfo());
         requirement.setClarificationQuestions(analysis.clarificationQuestions());
@@ -80,7 +82,7 @@ public class PrdServiceImpl implements PrdService {
         prdDocument.setProjectId(project.getId());
         prdDocument.setRequirementId(requirement.getId());
         prdDocument.setTitle(requirement.getTitle() + " PRD");
-        prdDocument.setContent(prdAgent.generatePrd(requirement, analysis));
+        prdDocument.setContent(execution.prdMarkdown());
         prdDocument.setStatus(PRD_STATUS_REVIEWING);
         prdDocument.setVersionNo(nextPrdVersion(project.getId()));
         prdDocument.setCreatedBy(operatorId(reqVo.getOperatorId(), project));

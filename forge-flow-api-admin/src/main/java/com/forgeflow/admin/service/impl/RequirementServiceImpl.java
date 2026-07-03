@@ -16,6 +16,7 @@ import com.forgeflow.dao.mapper.ProjectMapper;
 import com.forgeflow.dao.mapper.RequirementMapper;
 import com.forgeflow.pojo.vo.req.ReqAnalyzeRequirementVo;
 import com.forgeflow.pojo.vo.resp.RespRequirementAnalysisVo;
+import com.forgeflow.pojo.vo.resp.RespRequirementDetailVo;
 import com.forgeflow.pojo.vo.resp.RespRequirementUploadVo;
 import jakarta.annotation.Resource;
 import java.time.LocalDate;
@@ -117,6 +118,25 @@ public class RequirementServiceImpl implements RequirementService {
         return convertAnalysis(requirement, null, requirement.getUpdatedAt());
     }
 
+    @Override
+    public RespRequirementDetailVo getLatest(Long projectId) {
+        getProject(projectId);
+        Requirement requirement = requirementMapper.selectOne(Wrappers.<Requirement>lambdaQuery()
+                .eq(Requirement::getProjectId, projectId)
+                .orderByDesc(Requirement::getCreatedAt)
+                .last("LIMIT 1"));
+        if (requirement == null) {
+            throw new BizException("requirement not found");
+        }
+        return convertDetail(requirement);
+    }
+
+    @Override
+    public RespRequirementDetailVo getDetail(Long projectId, Long requirementId) {
+        getProject(projectId);
+        return convertDetail(getRequirement(projectId, requirementId));
+    }
+
     private RespRequirementAnalysisVo analyzeRequirement(Project project, Requirement requirement) {
         GenerationTask task = new GenerationTask();
         task.setProjectId(requirement.getProjectId());
@@ -158,6 +178,12 @@ public class RequirementServiceImpl implements RequirementService {
         respVo.setRequirementId(requirement.getId());
         respVo.setTaskId(taskId);
         respVo.setAnalyzedAt(analyzedAt);
+        return respVo;
+    }
+
+    private RespRequirementDetailVo convertDetail(Requirement requirement) {
+        RespRequirementDetailVo respVo = BeanUtil.copyProperties(requirement, RespRequirementDetailVo.class);
+        respVo.setRequirementId(requirement.getId());
         return respVo;
     }
 

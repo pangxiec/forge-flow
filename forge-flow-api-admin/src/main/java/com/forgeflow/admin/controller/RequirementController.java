@@ -4,6 +4,7 @@ import com.forgeflow.admin.service.RequirementService;
 import com.forgeflow.common.annotation.EnableResponseResult;
 import com.forgeflow.pojo.vo.req.ReqAnalyzeRequirementVo;
 import com.forgeflow.pojo.vo.resp.RespRequirementAnalysisVo;
+import com.forgeflow.pojo.vo.resp.RespRequirementDetailVo;
 import com.forgeflow.pojo.vo.resp.RespRequirementUploadVo;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -54,5 +55,17 @@ public class RequirementController {
     @GetMapping("/latest-analysis/{projectId}")
     public RespRequirementAnalysisVo getLatestAnalysis(@PathVariable("projectId") Long projectId) {
         return requirementService.getLatestAnalysis(projectId);
+    }
+
+    @GetMapping("/latest/{projectId}")
+    public RespRequirementDetailVo getLatest(@PathVariable("projectId") Long projectId) {
+        return requirementService.getLatest(projectId);
+    }
+
+    @GetMapping("/{projectId}/{requirementId}")
+    public RespRequirementDetailVo getDetail(
+            @PathVariable("projectId") Long projectId,
+            @PathVariable("requirementId") Long requirementId) {
+        return requirementService.getDetail(projectId, requirementId);
     }
 }

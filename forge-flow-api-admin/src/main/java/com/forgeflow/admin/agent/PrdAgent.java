@@ -6,8 +6,13 @@ import com.forgeflow.dao.domain.Requirement;
 import com.forgeflow.third.llm.LlmChatRequest;
 import com.forgeflow.third.llm.LlmGateway;
 import jakarta.annotation.Resource;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +63,22 @@ public class PrdAgent {
                ## 16. 待澄清问题
             4. 对未明确的信息，要标注“待确认”，不要编造具体公司内部制度、金额阈值、真实接口或真实密钥。
             5. 验收标准使用可验证条目，适合后续测试负责人生成测试用例。
+            """;
+
+    private static final String PRD_REVIEW_SYSTEM_PROMPT = """
+            你是一位严谨的 PRD 评审专家。请检查 PRD 是否可以进入审批流。
+            重点检查：章节完整性、业务目标清晰度、范围边界、用户角色、功能清单、业务规则、异常场景、权限审批、数据字段、非功能需求、验收标准可测试性、待澄清问题是否合理。
+            请严格返回 JSON，不要输出 markdown 代码块或其他文本，格式如下：
+            {"passed":false,"summary":"评审摘要","issues":["问题1"],"suggestions":["建议1"]}
+            """;
+
+    private static final String PRD_REVISION_SYSTEM_PROMPT = """
+            你是一位资深产品经理。请根据 PRD 评审意见修订 PRD。
+            要求：
+            1. 只输出修订后的 Markdown 正文，不要输出 JSON，不要输出 markdown 代码块标记。
+            2. 保留原始需求已经明确的信息，不能编造真实公司制度、金额阈值、真实接口或密钥。
+            3. 对不明确的信息标注“待确认”。
+            4. 强化验收标准，使其可被测试人员直接拆解为测试用例。
             """;
 
     @Resource
@@ -151,11 +172,56 @@ public class PrdAgent {
     }
 
     public String generatePrd(Requirement requirement) {
-        RequirementAnalysis analysis = analyze(requirement);
-        return generatePrd(requirement, analysis);
+        return run(requirement).prdMarkdown();
     }
 
     public String generatePrd(Requirement requirement, RequirementAnalysis analysis) {
+        return run(requirement, analysis).prdMarkdown();
+    }
+
+    public PrdAgentExecution run(Requirement requirement) {
+        RequirementAnalysis analysis = analyze(requirement);
+        return run(requirement, analysis);
+    }
+
+    public PrdAgentExecution run(Requirement requirement, RequirementAnalysis analysis) {
+        List<PrdAgentStep> steps = new ArrayList<>();
+
+        String knowledgeContext = executeStep(steps, "load-knowledge", "KnowledgeBaseTool",
+                () -> loadKnowledgeContext());
+
+        String draft = executeStep(steps, "generate-draft", "PrdDraftGeneratorTool",
+                () -> generatePrdDraft(requirement, analysis, knowledgeContext));
+
+        PrdAgentReview review = executeStep(steps, "review-draft", "PrdReviewTool",
+                () -> reviewPrd(requirement, analysis, draft));
+
+        String finalPrd;
+        if (review.passed() && review.issues().isEmpty()) {
+            finalPrd = draft;
+            steps.add(PrdAgentStep.builder()
+                    .name("revise-draft")
+                    .tool("PrdRevisionTool")
+                    .status("SKIPPED")
+                    .summary("PRD self-review passed; no revision required.")
+                    .elapsedMillis(0)
+                    .build());
+        } else {
+            finalPrd = executeStep(steps, "revise-draft", "PrdRevisionTool",
+                    () -> revisePrd(requirement, analysis, draft, review, knowledgeContext));
+        }
+
+        log.info("PRD Agent fixed flow completed requirementId={}, steps={}",
+                requirement.getId(), steps.stream().map(PrdAgentStep::name).toList());
+        return PrdAgentExecution.builder()
+                .analysis(analysis)
+                .prdMarkdown(finalPrd)
+                .review(review)
+                .steps(Collections.unmodifiableList(steps))
+                .build();
+    }
+
+    private String generatePrdDraft(Requirement requirement, RequirementAnalysis analysis, String knowledgeContext) {
         try {
             String llmResponse = llmGateway.chat(LlmChatRequest.builder()
                     .scene("prd-generation")
@@ -163,7 +229,7 @@ public class PrdAgent {
                     .bizType("requirement")
                     .bizId(requirement.getId())
                     .systemPrompt(PRD_SYSTEM_PROMPT)
-                    .userPrompt(buildPrdUserPrompt(requirement, analysis))
+                    .userPrompt(buildPrdUserPrompt(requirement, analysis, knowledgeContext))
                     .timeoutSeconds(180)
                     .build()).getContent();
             String prdMarkdown = stripMarkdownFence(llmResponse);
@@ -176,7 +242,7 @@ public class PrdAgent {
         return localGeneratePrd(requirement, analysis);
     }
 
-    private String buildPrdUserPrompt(Requirement requirement, RequirementAnalysis analysis) {
+    private String buildPrdUserPrompt(Requirement requirement, RequirementAnalysis analysis, String knowledgeContext) {
         String expectedDate = requirement.getExpectedDate() == null
                 ? "待确认"
                 : requirement.getExpectedDate().format(DateTimeFormatter.ISO_LOCAL_DATE);
@@ -211,7 +277,247 @@ public class PrdAgent {
                 analysis.missingInfo(),
                 "",
                 "待澄清问题：",
-                analysis.clarificationQuestions());
+                analysis.clarificationQuestions(),
+                "",
+                "知识库与团队规范摘要：",
+                StringUtils.hasText(knowledgeContext) ? knowledgeContext : "暂无可用知识库摘要");
+    }
+
+    private String loadKnowledgeContext() {
+        Path knowledgeBase = Path.of("knowledge-base");
+        if (!Files.isDirectory(knowledgeBase)) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        try (var files = Files.list(knowledgeBase)) {
+            files.filter(path -> path.getFileName().toString().endsWith(".md"))
+                    .sorted()
+                    .limit(3)
+                    .forEach(path -> appendKnowledgeFile(builder, path));
+        } catch (IOException e) {
+            log.warn("PRD Agent failed to load knowledge base: {}", e.getMessage());
+        }
+        return truncate(builder.toString(), 6000);
+    }
+
+    private void appendKnowledgeFile(StringBuilder builder, Path path) {
+        try {
+            String content = Files.readString(path, StandardCharsets.UTF_8);
+            builder.append("\n\n# ").append(path.getFileName()).append("\n")
+                    .append(truncate(content, 2500));
+        } catch (IOException e) {
+            log.warn("PRD Agent failed to read knowledge file path={}, message={}", path, e.getMessage());
+        }
+    }
+
+    private PrdAgentReview reviewPrd(Requirement requirement, RequirementAnalysis analysis, String prdMarkdown) {
+        try {
+            String llmResponse = llmGateway.chat(LlmChatRequest.builder()
+                    .scene("prd-review")
+                    .projectId(requirement.getProjectId())
+                    .bizType("requirement")
+                    .bizId(requirement.getId())
+                    .systemPrompt(PRD_REVIEW_SYSTEM_PROMPT)
+                    .userPrompt(buildReviewUserPrompt(requirement, analysis, prdMarkdown))
+                    .timeoutSeconds(120)
+                    .build()).getContent();
+            return parseReviewResponse(llmResponse);
+        } catch (Exception e) {
+            log.warn("PRD Agent review fell back to local rules: {}", e.getMessage());
+            return localReviewPrd(prdMarkdown);
+        }
+    }
+
+    private String revisePrd(
+            Requirement requirement,
+            RequirementAnalysis analysis,
+            String draft,
+            PrdAgentReview review,
+            String knowledgeContext) {
+        try {
+            String llmResponse = llmGateway.chat(LlmChatRequest.builder()
+                    .scene("prd-revision")
+                    .projectId(requirement.getProjectId())
+                    .bizType("requirement")
+                    .bizId(requirement.getId())
+                    .systemPrompt(PRD_REVISION_SYSTEM_PROMPT)
+                    .userPrompt(buildRevisionUserPrompt(requirement, analysis, draft, review, knowledgeContext))
+                    .timeoutSeconds(180)
+                    .build()).getContent();
+            String revised = stripMarkdownFence(llmResponse);
+            if (StringUtils.hasText(revised)) {
+                return revised;
+            }
+        } catch (Exception e) {
+            log.warn("PRD Agent revision fell back to draft: {}", e.getMessage());
+        }
+        return draft;
+    }
+
+    private String buildReviewUserPrompt(Requirement requirement, RequirementAnalysis analysis, String prdMarkdown) {
+        return String.join("\n",
+                "请评审以下 PRD：",
+                "",
+                "需求ID：" + requirement.getId(),
+                "需求标题：" + normalize(requirement.getTitle()),
+                "",
+                "结构化摘要：",
+                analysis.structuredSummary(),
+                "",
+                "缺失信息：",
+                analysis.missingInfo(),
+                "",
+                "待澄清问题：",
+                analysis.clarificationQuestions(),
+                "",
+                "PRD 正文：",
+                prdMarkdown);
+    }
+
+    private String buildRevisionUserPrompt(
+            Requirement requirement,
+            RequirementAnalysis analysis,
+            String draft,
+            PrdAgentReview review,
+            String knowledgeContext) {
+        return String.join("\n",
+                "请修订以下 PRD：",
+                "",
+                "需求ID：" + requirement.getId(),
+                "需求标题：" + normalize(requirement.getTitle()),
+                "",
+                "结构化摘要：",
+                analysis.structuredSummary(),
+                "",
+                "评审摘要：",
+                review.summary(),
+                "",
+                "评审问题：",
+                toMarkdownList(review.issues()),
+                "",
+                "修订建议：",
+                toMarkdownList(review.suggestions()),
+                "",
+                "知识库与团队规范摘要：",
+                StringUtils.hasText(knowledgeContext) ? knowledgeContext : "暂无可用知识库摘要",
+                "",
+                "PRD 草稿：",
+                draft);
+    }
+
+    private PrdAgentReview parseReviewResponse(String llmResponse) {
+        try {
+            JsonNode root = objectMapper.readTree(stripCodeBlock(llmResponse));
+            return PrdAgentReview.builder()
+                    .passed(root.path("passed").asBoolean(false))
+                    .summary(root.path("summary").asText(""))
+                    .issues(jsonArrayToList(root.path("issues")))
+                    .suggestions(jsonArrayToList(root.path("suggestions")))
+                    .build();
+        } catch (Exception e) {
+            return localReviewPrd(llmResponse);
+        }
+    }
+
+    private List<String> jsonArrayToList(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        node.forEach(item -> {
+            String value = item.asText("");
+            if (StringUtils.hasText(value)) {
+                values.add(value);
+            }
+        });
+        return values;
+    }
+
+    private PrdAgentReview localReviewPrd(String prdMarkdown) {
+        List<String> issues = new ArrayList<>();
+        for (String section : requiredPrdSections()) {
+            if (!prdMarkdown.contains(section)) {
+                issues.add("缺少章节：" + section);
+            }
+        }
+        if (!prdMarkdown.contains("待确认") && !prdMarkdown.contains("待澄清")) {
+            issues.add("未明确标注不确定信息或待澄清问题");
+        }
+        if (prdMarkdown.length() < 1200) {
+            issues.add("PRD 内容偏短，可能不足以支撑后续原型、架构和测试生成");
+        }
+
+        boolean passed = issues.isEmpty();
+        return PrdAgentReview.builder()
+                .passed(passed)
+                .summary(passed ? "本地规则检查通过" : "本地规则发现 PRD 仍需补充")
+                .issues(issues)
+                .suggestions(passed ? List.of() : List.of("补齐缺失章节", "强化业务规则、异常场景和可测试验收标准"))
+                .build();
+    }
+
+    private List<String> requiredPrdSections() {
+        return List.of(
+                "## 1. 文档信息",
+                "## 2. 业务背景",
+                "## 3. 业务目标",
+                "## 4. 范围与边界",
+                "## 5. 用户角色",
+                "## 6. 核心业务流程",
+                "## 7. 功能清单",
+                "## 8. 页面与交互说明",
+                "## 9. 业务规则",
+                "## 10. 状态流转",
+                "## 11. 异常场景",
+                "## 12. 权限与审批要求",
+                "## 13. 数据与字段要求",
+                "## 14. 非功能需求",
+                "## 15. 验收标准",
+                "## 16. 待澄清问题");
+    }
+
+    private <T> T executeStep(List<PrdAgentStep> steps, String name, String tool, StepAction<T> action) {
+        long start = System.currentTimeMillis();
+        try {
+            T result = action.execute();
+            steps.add(PrdAgentStep.builder()
+                    .name(name)
+                    .tool(tool)
+                    .status("SUCCESS")
+                    .summary(stepSummary(result))
+                    .elapsedMillis(System.currentTimeMillis() - start)
+                    .build());
+            return result;
+        } catch (RuntimeException e) {
+            steps.add(PrdAgentStep.builder()
+                    .name(name)
+                    .tool(tool)
+                    .status("FAILED")
+                    .summary(e.getMessage())
+                    .elapsedMillis(System.currentTimeMillis() - start)
+                    .build());
+            throw e;
+        }
+    }
+
+    private String stepSummary(Object result) {
+        if (result == null) {
+            return "";
+        }
+        if (result instanceof String text) {
+            return "chars=" + text.length();
+        }
+        if (result instanceof PrdAgentReview review) {
+            return review.summary();
+        }
+        return result.getClass().getSimpleName();
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value == null ? "" : value;
+        }
+        return value.substring(0, maxLength);
     }
 
     private RequirementAnalysis localAnalyze(Requirement requirement) {
@@ -326,6 +632,11 @@ public class PrdAgent {
 
     private String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : "待补充";
+    }
+
+    @FunctionalInterface
+    private interface StepAction<T> {
+        T execute();
     }
 
     public record RequirementAnalysis(String structuredSummary, String missingInfo, String clarificationQuestions) {
