@@ -30,7 +30,7 @@ Initialize the first tables with:
 database/schema.sql
 ```
 
-Sensitive configuration such as database URL, username, password, Gitea token, LLM API key, and MinIO secret is intentionally empty by default.
+Sensitive configuration such as database password, Gitea token, LLM API key, and MinIO secret is intentionally empty by default.
 
 ## Build
 
@@ -52,7 +52,13 @@ npm run build
 
 Backend:
 
-Fill datasource configuration in `forge-flow-api-admin/src/main/resources/application-dev.yml`, then run:
+Set local datasource variables, then run:
+
+```powershell
+$env:FORGE_FLOW_DATASOURCE_URL="jdbc:mysql://127.0.0.1:3306/forge_flow?useSSL=false&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+$env:FORGE_FLOW_DATASOURCE_USERNAME="root"
+$env:FORGE_FLOW_DATASOURCE_PASSWORD="your-local-password"
+```
 
 ```bash
 mvn -pl forge-flow-api-admin -am spring-boot:run
