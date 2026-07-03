@@ -2,6 +2,9 @@
 
 AI full-lifecycle development platform for internal R&D delivery.
 
+需求提交 —> 生成需求文档 —> 生成 PRD —> PRD 确认 —> 生成页面原型
+审核页面原型 —> 设计技术架构 —> 沉淀需求+架构文档推送 git —> 进行开发
+
 ## Modules
 
 ```text
