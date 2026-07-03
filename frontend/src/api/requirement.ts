@@ -49,7 +49,7 @@ export function uploadRequirement(payload: RequirementUploadPayload) {
 
 export interface RequirementAnalysisResult {
   requirementId: string
-  taskId: string
+  taskId?: string
   title: string
   status: string
   structuredSummary: string
@@ -114,6 +114,10 @@ export function analyzeRequirement(payload: RequirementAnalyzePayload) {
   return http.post<RequirementAnalysisResult, RequirementAnalysisResult>('/requirement/analyze', payload, {
     timeout: 180000,
   })
+}
+
+export function getLatestAnalysis(projectId: string) {
+  return http.get<RequirementAnalysisResult, RequirementAnalysisResult>(`/requirement/latest-analysis/${projectId}`)
 }
 
 export function generatePrd(payload: GeneratePrdPayload) {

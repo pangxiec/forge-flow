@@ -43,7 +43,7 @@
         </div>
         <div class="topbar-actions">
           <el-button :icon="UploadFilled" @click="activeFlowStep = 'upload'">上传需求</el-button>
-          <el-button :icon="Refresh" :loading="loadingLatest" :disabled="!selectedProjectId" @click="loadLatestPrd">
+          <el-button :icon="Refresh" :loading="loadingLatest || loadingPrototype" :disabled="!selectedProjectId" @click="refreshLatestResults">
             刷新结果
           </el-button>
           <el-button type="primary" :icon="DocumentChecked" :loading="generating" :disabled="!selectedProjectId" @click="regeneratePrd">
@@ -269,31 +269,7 @@
                 <el-icon><Memo /></el-icon>
                 <strong>结构化摘要</strong>
               </div>
-              <div v-if="analysisViewMode === 'preview'" class="markdown-render compact">
-                <template v-for="(block, index) in renderMarkdown(analysisResult.structuredSummary)" :key="index">
-                  <component :is="`h${block.level}`" v-if="block.type === 'heading'" class="markdown-heading">
-                    {{ block.text }}
-                  </component>
-                  <ul v-else-if="block.type === 'list'" class="markdown-list">
-                    <li v-for="item in block.items" :key="item">{{ item }}</li>
-                  </ul>
-                  <div v-else-if="block.type === 'table'" class="markdown-table-wrap">
-                    <table class="markdown-table">
-                      <thead>
-                        <tr>
-                          <th v-for="header in block.headers" :key="header">{{ header }}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
-                          <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <p v-else class="markdown-paragraph">{{ block.text }}</p>
-                </template>
-              </div>
+              <div v-if="analysisViewMode === 'preview'" class="markdown-render compact" v-html="renderMarkdownHtml(analysisResult.structuredSummary)" />
               <pre v-else>{{ analysisResult.structuredSummary }}</pre>
             </article>
             <article class="analysis-block warning">
@@ -301,31 +277,7 @@
                 <el-icon><Warning /></el-icon>
                 <strong>缺失信息</strong>
               </div>
-              <div v-if="analysisViewMode === 'preview'" class="markdown-render compact">
-                <template v-for="(block, index) in renderMarkdown(analysisResult.missingInfo)" :key="index">
-                  <component :is="`h${block.level}`" v-if="block.type === 'heading'" class="markdown-heading">
-                    {{ block.text }}
-                  </component>
-                  <ul v-else-if="block.type === 'list'" class="markdown-list">
-                    <li v-for="item in block.items" :key="item">{{ item }}</li>
-                  </ul>
-                  <div v-else-if="block.type === 'table'" class="markdown-table-wrap">
-                    <table class="markdown-table">
-                      <thead>
-                        <tr>
-                          <th v-for="header in block.headers" :key="header">{{ header }}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
-                          <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <p v-else class="markdown-paragraph">{{ block.text }}</p>
-                </template>
-              </div>
+              <div v-if="analysisViewMode === 'preview'" class="markdown-render compact" v-html="renderMarkdownHtml(analysisResult.missingInfo)" />
               <pre v-else>{{ analysisResult.missingInfo }}</pre>
             </article>
             <article class="analysis-block">
@@ -333,31 +285,7 @@
                 <el-icon><QuestionFilled /></el-icon>
                 <strong>澄清问题</strong>
               </div>
-              <div v-if="analysisViewMode === 'preview'" class="markdown-render compact">
-                <template v-for="(block, index) in renderMarkdown(analysisResult.clarificationQuestions)" :key="index">
-                  <component :is="`h${block.level}`" v-if="block.type === 'heading'" class="markdown-heading">
-                    {{ block.text }}
-                  </component>
-                  <ul v-else-if="block.type === 'list'" class="markdown-list">
-                    <li v-for="item in block.items" :key="item">{{ item }}</li>
-                  </ul>
-                  <div v-else-if="block.type === 'table'" class="markdown-table-wrap">
-                    <table class="markdown-table">
-                      <thead>
-                        <tr>
-                          <th v-for="header in block.headers" :key="header">{{ header }}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
-                          <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <p v-else class="markdown-paragraph">{{ block.text }}</p>
-                </template>
-              </div>
+              <div v-if="analysisViewMode === 'preview'" class="markdown-render compact" v-html="renderMarkdownHtml(analysisResult.clarificationQuestions)" />
               <pre v-else>{{ analysisResult.clarificationQuestions }}</pre>
             </article>
           </div>
@@ -395,31 +323,7 @@
           <el-empty v-else-if="!prdDocument" description="暂无 PRD 文档" :image-size="110">
             <el-button type="primary" :disabled="!selectedProjectId" @click="regeneratePrd">生成 PRD</el-button>
           </el-empty>
-          <article v-else-if="prdViewMode === 'preview'" class="prd-markdown-preview rendered">
-            <template v-for="(block, index) in renderMarkdown(prdDocument.content)" :key="index">
-              <component :is="`h${block.level}`" v-if="block.type === 'heading'" class="markdown-heading">
-                {{ block.text }}
-              </component>
-              <ul v-else-if="block.type === 'list'" class="markdown-list">
-                <li v-for="item in block.items" :key="item">{{ item }}</li>
-              </ul>
-              <div v-else-if="block.type === 'table'" class="markdown-table-wrap">
-                <table class="markdown-table">
-                  <thead>
-                    <tr>
-                      <th v-for="header in block.headers" :key="header">{{ header }}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
-                      <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p v-else class="markdown-paragraph">{{ block.text }}</p>
-            </template>
-          </article>
+          <article v-else-if="prdViewMode === 'preview'" class="prd-markdown-preview rendered" v-html="renderMarkdownHtml(prdDocument.content)" />
           <article v-else class="prd-markdown-preview">
             <pre>{{ prdDocument.content }}</pre>
           </article>
@@ -484,7 +388,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import DOMPurify from 'dompurify'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadProps, type UploadUserFile } from 'element-plus'
+import { marked } from 'marked'
 import {
   Connection,
   CopyDocument,
@@ -507,6 +413,7 @@ import {
   confirmPrd,
   generatePrd,
   generatePrototype,
+  getLatestAnalysis,
   getLatestPrd,
   getLatestPrototype,
   uploadRequirement,
@@ -716,7 +623,11 @@ const statusCards = computed(() => [
   {
     label: '需求分析',
     value: analysisResult.value ? '已完成' : '待触发',
-    hint: analysisResult.value ? `Task ${analysisResult.value.taskId}` : '使用最新需求输入',
+    hint: analysisResult.value
+      ? analysisResult.value.taskId
+        ? `Task ${analysisResult.value.taskId}`
+        : formatDateTime(analysisResult.value.analyzedAt)
+      : '使用最新需求输入',
   },
   {
     label: 'PRD 版本',
@@ -734,9 +645,7 @@ onMounted(async () => {
   hydrateRouteParams()
   await loadProjects()
   if (selectedProjectId.value) {
-    if (selectedRequirementId.value) {
-      await runAnalysis(false)
-    }
+    await loadLatestAnalysis(false)
     await loadLatestPrd(false)
     await loadLatestPrototype(false)
     syncActiveFlowStep()
@@ -809,6 +718,7 @@ async function handleProjectChange() {
   prototypeArtifact.value = undefined
   activeFlowStep.value = 'analysis'
   if (selectedProjectId.value) {
+    await loadLatestAnalysis(false)
     await loadLatestPrd(false)
     await loadLatestPrototype(false)
     syncActiveFlowStep()
@@ -919,6 +829,27 @@ async function runAnalysis(showMessage = true) {
   }
 }
 
+async function loadLatestAnalysis(showMessage = true) {
+  if (!selectedProjectId.value) {
+    return false
+  }
+  try {
+    analysisResult.value = await getLatestAnalysis(selectedProjectId.value)
+    selectedRequirementId.value = analysisResult.value.requirementId
+    if (showMessage) {
+      activeFlowStep.value = 'analysis'
+      ElMessage.success('已刷新最新需求分析')
+    }
+    return true
+  } catch {
+    analysisResult.value = undefined
+    if (showMessage) {
+      ElMessage.info('当前项目暂无已保存的需求分析')
+    }
+    return false
+  }
+}
+
 async function regeneratePrd() {
   if (!selectedProjectId.value) {
     ElMessage.warning('请先选择项目')
@@ -928,7 +859,10 @@ async function regeneratePrd() {
   startWaitingTimer()
   try {
     if (!analysisResult.value) {
-      await runAnalysis(false)
+      const loaded = await loadLatestAnalysis(false)
+      if (!loaded) {
+        await runAnalysis(false)
+      }
     }
     prdDocument.value = await generatePrd({
       projectId: selectedProjectId.value,
@@ -960,6 +894,17 @@ function stopWaitingTimer() {
     window.clearInterval(waitingTimer)
     waitingTimer = undefined
   }
+}
+
+async function refreshLatestResults() {
+  if (!selectedProjectId.value) {
+    return
+  }
+  await loadLatestAnalysis(false)
+  await loadLatestPrd(false)
+  await loadLatestPrototype(false)
+  syncActiveFlowStep()
+  ElMessage.success('已刷新最新结果')
 }
 
 async function loadLatestPrd(showMessage = true) {
@@ -1080,6 +1025,15 @@ function formatDateTime(value?: string) {
 
 function goTo(path: string) {
   router.push(path)
+}
+
+function renderMarkdownHtml(content: string) {
+  const rawHtml = marked.parse(content || '', {
+    async: false,
+    breaks: true,
+    gfm: true,
+  }) as string
+  return DOMPurify.sanitize(rawHtml)
 }
 
 type MarkdownBlock =

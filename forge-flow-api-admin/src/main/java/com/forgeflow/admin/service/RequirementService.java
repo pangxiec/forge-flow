@@ -14,4 +14,6 @@ public interface RequirementService {
             Boolean sensitiveMasked, List<MultipartFile> files);
 
     RespRequirementAnalysisVo analyze(ReqAnalyzeRequirementVo reqVo);
+
+    RespRequirementAnalysisVo getLatestAnalysis(Long projectId);
 }

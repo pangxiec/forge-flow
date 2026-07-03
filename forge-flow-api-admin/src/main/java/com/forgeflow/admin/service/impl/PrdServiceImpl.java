@@ -69,11 +69,18 @@ public class PrdServiceImpl implements PrdService {
         task.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
         generationTaskMapper.insert(task);
 
+        PrdAgent.RequirementAnalysis analysis = prdAgent.analyze(requirement);
+        requirement.setStructuredSummary(analysis.structuredSummary());
+        requirement.setMissingInfo(analysis.missingInfo());
+        requirement.setClarificationQuestions(analysis.clarificationQuestions());
+        requirement.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
+        requirementMapper.updateById(requirement);
+
         PrdDocument prdDocument = new PrdDocument();
         prdDocument.setProjectId(project.getId());
         prdDocument.setRequirementId(requirement.getId());
         prdDocument.setTitle(requirement.getTitle() + " PRD");
-        prdDocument.setContent(prdAgent.generatePrd(requirement));
+        prdDocument.setContent(prdAgent.generatePrd(requirement, analysis));
         prdDocument.setStatus(PRD_STATUS_REVIEWING);
         prdDocument.setVersionNo(nextPrdVersion(project.getId()));
         prdDocument.setCreatedBy(operatorId(reqVo.getOperatorId(), project));

@@ -103,6 +103,20 @@ public class RequirementServiceImpl implements RequirementService {
         return analyzeRequirement(project, requirement);
     }
 
+    @Override
+    public RespRequirementAnalysisVo getLatestAnalysis(Long projectId) {
+        getProject(projectId);
+        Requirement requirement = requirementMapper.selectOne(Wrappers.<Requirement>lambdaQuery()
+                .eq(Requirement::getProjectId, projectId)
+                .isNotNull(Requirement::getStructuredSummary)
+                .orderByDesc(Requirement::getUpdatedAt)
+                .last("LIMIT 1"));
+        if (requirement == null) {
+            throw new BizException("requirement analysis not found");
+        }
+        return convertAnalysis(requirement, null, requirement.getUpdatedAt());
+    }
+
     private RespRequirementAnalysisVo analyzeRequirement(Project project, Requirement requirement) {
         GenerationTask task = new GenerationTask();
         task.setProjectId(requirement.getProjectId());
@@ -136,9 +150,14 @@ public class RequirementServiceImpl implements RequirementService {
         auditLogService.record(project.getManagerId(), UserRoleEnum.PROJECT_MANAGER.getCode(),
                 "ANALYZE_REQUIREMENT", "GENERATION_TASK", task.getId(), null, requirement.getTitle());
 
+        return convertAnalysis(requirement, task.getId(), task.getFinishedAt());
+    }
+
+    private RespRequirementAnalysisVo convertAnalysis(Requirement requirement, Long taskId, LocalDateTime analyzedAt) {
         RespRequirementAnalysisVo respVo = BeanUtil.copyProperties(requirement, RespRequirementAnalysisVo.class);
-        respVo.setTaskId(task.getId());
-        respVo.setAnalyzedAt(task.getFinishedAt());
+        respVo.setRequirementId(requirement.getId());
+        respVo.setTaskId(taskId);
+        respVo.setAnalyzedAt(analyzedAt);
         return respVo;
     }
 

@@ -10,6 +10,8 @@ import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,5 +49,10 @@ public class RequirementController {
     @PostMapping("/analyze")
     public RespRequirementAnalysisVo analyze(@RequestBody @Valid ReqAnalyzeRequirementVo reqVo) {
         return requirementService.analyze(reqVo);
+    }
+
+    @GetMapping("/latest-analysis/{projectId}")
+    public RespRequirementAnalysisVo getLatestAnalysis(@PathVariable("projectId") Long projectId) {
+        return requirementService.getLatestAnalysis(projectId);
     }
 }

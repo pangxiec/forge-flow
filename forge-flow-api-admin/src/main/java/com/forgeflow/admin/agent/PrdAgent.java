@@ -152,6 +152,10 @@ public class PrdAgent {
 
     public String generatePrd(Requirement requirement) {
         RequirementAnalysis analysis = analyze(requirement);
+        return generatePrd(requirement, analysis);
+    }
+
+    public String generatePrd(Requirement requirement, RequirementAnalysis analysis) {
         try {
             String llmResponse = llmGateway.chat(LlmChatRequest.builder()
                     .scene("prd-generation")
