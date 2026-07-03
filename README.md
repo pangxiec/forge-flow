@@ -74,24 +74,11 @@ cd frontend
 npm run dev
 ```
 
-## First API
+## Effect Picture
 
-Create project:
+<img width="1913" height="893" alt="image" src="https://github.com/user-attachments/assets/df31de3d-897a-4d53-b94a-9608f7eece18" />
+<img width="1913" height="1494" alt="image" src="https://github.com/user-attachments/assets/7da26333-d585-426c-87bd-0065130c9fae" />
+<img width="1635" height="763" alt="image" src="https://github.com/user-attachments/assets/c25ea7ee-091f-47b2-b887-e32e8d75adc7" />
+<img width="1612" height="859" alt="image" src="https://github.com/user-attachments/assets/867bc383-d913-4b9c-9943-180cb261dbfa" />
 
-```http
-POST /api/v1/project/create
-Content-Type: application/json
 
-{
-  "projectName": "ForgeFlow MVP",
-  "projectCode": "forge-flow-mvp",
-  "description": "First-stage AI full-lifecycle platform",
-  "managerId": 1
-}
-```
-
-Project detail:
-
-```http
-GET /api/v1/project/detail/{id}
-```
