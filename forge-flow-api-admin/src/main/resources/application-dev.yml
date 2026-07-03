@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: ${FORGE_FLOW_DATASOURCE_URL:}
-    username: ${FORGE_FLOW_DATASOURCE_USERNAME:push}
-    password: ${FORGE_FLOW_DATASOURCE_PASSWORD:}
+    url: ${DATASOURCE_URL:}
+    username: ${DATASOURCE_USERNAME:push}
+    password: ${DATASOURCE_PASSWORD:}
 
 logging:
   level:
