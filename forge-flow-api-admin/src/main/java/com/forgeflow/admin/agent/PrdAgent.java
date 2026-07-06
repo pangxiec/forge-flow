@@ -179,14 +179,6 @@ public class PrdAgent {
         return trimmed;
     }
 
-    public String generatePrd(Requirement requirement) {
-        return run(requirement).prdMarkdown();
-    }
-
-    public String generatePrd(Requirement requirement, RequirementAnalysis analysis) {
-        return run(requirement, analysis).prdMarkdown();
-    }
-
     public PrdAgentExecution run(Requirement requirement) {
         RequirementAnalysis analysis = analyze(requirement);
         return run(requirement, analysis);
