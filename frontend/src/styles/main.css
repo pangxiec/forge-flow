@@ -1380,6 +1380,86 @@ textarea {
   font-size: 20px;
 }
 
+.agent-trace-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.agent-trace-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.agent-trace-list {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-trace-step {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+}
+
+.agent-trace-index {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(14, 165, 233, 0.22);
+  border-radius: 999px;
+}
+
+.agent-trace-body {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.agent-trace-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.agent-trace-title strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.agent-trace-title span,
+.agent-trace-body p,
+.agent-trace-state small {
+  color: var(--color-muted-text);
+  font-size: 12px;
+}
+
+.agent-trace-body p {
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.agent-trace-state {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 @keyframes agent-spin {
   from {
     transform: rotate(0deg);
@@ -2118,6 +2198,15 @@ h4.markdown-heading {
   .agent-waiting-time {
     grid-column: 1 / -1;
     text-align: left;
+  }
+
+  .agent-trace-step {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .agent-trace-state {
+    grid-column: 2;
+    justify-items: start;
   }
 
   .analysis-panel,

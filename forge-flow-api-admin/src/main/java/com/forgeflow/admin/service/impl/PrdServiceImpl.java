@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.forgeflow.admin.agent.PrdAgent;
 import com.forgeflow.admin.agent.PrdAgentExecution;
 import com.forgeflow.admin.service.AuditLogService;
+import com.forgeflow.admin.service.GenerationTaskStepService;
 import com.forgeflow.admin.service.PrdService;
 import com.forgeflow.common.enums.ProjectStatusEnum;
 import com.forgeflow.common.enums.UserRoleEnum;
@@ -46,6 +47,9 @@ public class PrdServiceImpl implements PrdService {
 
     @Resource
     private GenerationTaskMapper generationTaskMapper;
+
+    @Resource
+    private GenerationTaskStepService generationTaskStepService;
 
     @Resource
     private AuditLogService auditLogService;
@@ -93,6 +97,8 @@ public class PrdServiceImpl implements PrdService {
         task.setOutputArtifactId(prdDocument.getId());
         task.setFinishedAt(LocalDateTime.now());
         generationTaskMapper.updateById(task);
+        generationTaskStepService.savePrdAgentSteps(task.getId(), project.getId(),
+                operatorId(reqVo.getOperatorId(), project), execution.steps());
 
         project.setCurrentStage(ProjectStatusEnum.PRD_REVIEWING.getCode());
         project.setStatus(ProjectStatusEnum.PRD_REVIEWING.getCode());
@@ -174,6 +180,14 @@ public class PrdServiceImpl implements PrdService {
     private RespPrdDocumentVo convert(PrdDocument prdDocument) {
         RespPrdDocumentVo respVo = new RespPrdDocumentVo();
         BeanUtils.copyProperties(prdDocument, respVo);
+        GenerationTask task = generationTaskMapper.selectOne(Wrappers.<GenerationTask>lambdaQuery()
+                .eq(GenerationTask::getTaskType, TASK_TYPE_PRD_GENERATE)
+                .eq(GenerationTask::getOutputArtifactId, prdDocument.getId())
+                .orderByDesc(GenerationTask::getCreatedAt)
+                .last("LIMIT 1"));
+        if (task != null) {
+            respVo.setTaskId(task.getId());
+        }
         return respVo;
     }
 

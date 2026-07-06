@@ -130,6 +130,20 @@ export interface PrototypeArtifactResult {
   updatedAt: string
 }
 
+export interface GenerationTaskStepResult {
+  id: string
+  taskId: string
+  projectId: string
+  stepOrder: number
+  stepName: string
+  toolName: string
+  status: string
+  summary: string
+  elapsedMillis: number
+  startedAt?: string
+  finishedAt?: string
+}
+
 export function analyzeRequirement(payload: RequirementAnalyzePayload) {
   return http.post<RequirementAnalysisResult, RequirementAnalysisResult>('/requirement/analyze', payload, {
     timeout: 180000,
@@ -170,4 +184,8 @@ export function generatePrototype(payload: GeneratePrototypePayload) {
 
 export function getLatestPrototype(projectId: string) {
   return http.get<PrototypeArtifactResult, PrototypeArtifactResult>(`/prototype/latest/${projectId}`)
+}
+
+export function getGenerationTaskSteps(taskId: string) {
+  return http.get<GenerationTaskStepResult[], GenerationTaskStepResult[]>(`/generation-task/${taskId}/steps`)
 }

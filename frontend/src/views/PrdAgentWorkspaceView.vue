@@ -154,6 +154,44 @@
         </div>
       </section>
 
+      <section class="panel agent-trace-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Agent 执行轨迹</h2>
+            <p>{{ prdDocument?.taskId ? `Task ${prdDocument.taskId}` : '生成 PRD 后展示 Agent 多步执行过程。' }}</p>
+          </div>
+          <div class="agent-trace-tools">
+            <el-tag :type="agentTraceSteps.length ? 'success' : 'info'" effect="light">
+              {{ agentTraceSteps.length ? `${agentTraceSteps.length} steps` : '暂无轨迹' }}
+            </el-tag>
+            <el-button :icon="Refresh" :loading="loadingAgentTrace" :disabled="!prdDocument?.taskId" @click="loadAgentTrace">
+              刷新
+            </el-button>
+          </div>
+        </div>
+
+        <el-skeleton v-if="loadingAgentTrace" :rows="4" animated />
+        <el-empty v-else-if="!agentTraceSteps.length" description="暂无 Agent 执行轨迹" :image-size="82" />
+        <div v-else class="agent-trace-list">
+          <article v-for="step in agentTraceSteps" :key="step.id" class="agent-trace-step">
+            <div class="agent-trace-index">{{ step.stepOrder }}</div>
+            <div class="agent-trace-body">
+              <div class="agent-trace-title">
+                <strong>{{ step.stepName }}</strong>
+                <span>{{ step.toolName }}</span>
+              </div>
+              <p>{{ step.summary || '-' }}</p>
+            </div>
+            <div class="agent-trace-state">
+              <el-tag :type="step.status === 'SUCCESS' ? 'success' : step.status === 'SKIPPED' ? 'info' : 'danger'" effect="light">
+                {{ step.status }}
+              </el-tag>
+              <small>{{ formatElapsed(step.elapsedMillis) }}</small>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="prd-flow-stepper" aria-label="PRD Agent 流程步骤">
         <button
           v-for="(step, index) in flowSteps"
@@ -457,12 +495,14 @@ import {
   confirmPrd,
   generatePrd,
   generatePrototype,
+  getGenerationTaskSteps,
   getLatestAnalysis,
   getLatestPrd,
   getLatestPrototype,
   getLatestRequirement,
   getRequirementDetail,
   uploadRequirement,
+  type GenerationTaskStepResult,
   type PrdDocumentResult,
   type PrototypeArtifactResult,
   type RequirementAnalysisResult,
@@ -482,6 +522,7 @@ const confirmingPrd = ref(false)
 const generatingPrototype = ref(false)
 const loadingLatest = ref(false)
 const loadingPrototype = ref(false)
+const loadingAgentTrace = ref(false)
 const waitingSeconds = ref(0)
 let waitingTimer: number | undefined
 const projects = ref<BackendProject[]>([])
@@ -493,6 +534,7 @@ const requirementRecord = ref<RequirementDetailResult>()
 const analysisResult = ref<RequirementAnalysisResult>()
 const prdDocument = ref<PrdDocumentResult>()
 const prototypeArtifact = ref<PrototypeArtifactResult>()
+const agentTraceSteps = ref<GenerationTaskStepResult[]>([])
 const loadingRequirement = ref(false)
 const analysisViewMode = ref('preview')
 const prdViewMode = ref('preview')
@@ -784,6 +826,7 @@ async function handleProjectChange() {
   analysisResult.value = undefined
   prdDocument.value = undefined
   prototypeArtifact.value = undefined
+  agentTraceSteps.value = []
   activeFlowStep.value = 'analysis'
   if (selectedProjectId.value) {
     await loadRequirementRecord(false)
@@ -861,6 +904,7 @@ async function submitRequirementInFlow() {
     analysisResult.value = undefined
     prdDocument.value = undefined
     prototypeArtifact.value = undefined
+    agentTraceSteps.value = []
     activeFlowStep.value = 'analysis'
     ElMessage.success('需求已提交，正在进入分析步骤')
     await runAnalysis(false)
@@ -971,6 +1015,7 @@ async function regeneratePrd() {
     })
     selectedRequirementId.value = prdDocument.value.requirementId
     prototypeArtifact.value = undefined
+    await loadAgentTrace(false)
     activeFlowStep.value = 'prd'
     ElMessage.success('PRD 已生成')
   } catch {
@@ -1016,6 +1061,7 @@ async function loadLatestPrd(showMessage = true) {
   try {
     prdDocument.value = await getLatestPrd(selectedProjectId.value)
     selectedRequirementId.value = prdDocument.value.requirementId
+    await loadAgentTrace(false)
     if (showMessage) {
       activeFlowStep.value = 'prd'
     }
@@ -1024,11 +1070,35 @@ async function loadLatestPrd(showMessage = true) {
     }
   } catch {
     prdDocument.value = undefined
+    agentTraceSteps.value = []
     if (showMessage) {
       ElMessage.info('当前项目暂无 PRD，可先生成')
     }
   } finally {
     loadingLatest.value = false
+  }
+}
+
+async function loadAgentTrace(showMessage = true) {
+  if (!prdDocument.value?.taskId) {
+    agentTraceSteps.value = []
+    return false
+  }
+  loadingAgentTrace.value = true
+  try {
+    agentTraceSteps.value = await getGenerationTaskSteps(prdDocument.value.taskId)
+    if (showMessage) {
+      ElMessage.success('已刷新 Agent 执行轨迹')
+    }
+    return true
+  } catch {
+    agentTraceSteps.value = []
+    if (showMessage) {
+      ElMessage.warning('Agent 执行轨迹加载失败')
+    }
+    return false
+  } finally {
+    loadingAgentTrace.value = false
   }
 }
 
@@ -1122,6 +1192,16 @@ function formatDateTime(value?: string) {
     return '-'
   }
   return value.replace('T', ' ').slice(0, 16)
+}
+
+function formatElapsed(value?: number) {
+  if (!value) {
+    return '0ms'
+  }
+  if (value < 1000) {
+    return `${value}ms`
+  }
+  return `${(value / 1000).toFixed(1)}s`
 }
 
 function goTo(path: string) {

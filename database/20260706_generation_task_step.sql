@@ -1,0 +1,22 @@
+CREATE TABLE generation_task_step (
+  id BIGINT PRIMARY KEY COMMENT '主键ID',
+  task_id BIGINT NOT NULL COMMENT '生成任务ID',
+  project_id BIGINT NOT NULL COMMENT '项目ID',
+  step_order INT NOT NULL COMMENT '步骤顺序',
+  step_name VARCHAR(128) NOT NULL COMMENT '步骤名称',
+  tool_name VARCHAR(128) NULL COMMENT '工具名称',
+  status VARCHAR(64) NOT NULL COMMENT '步骤状态',
+  summary TEXT NULL COMMENT '步骤摘要',
+  elapsed_millis BIGINT NULL COMMENT '耗时毫秒',
+  started_at DATETIME NULL COMMENT '开始时间',
+  finished_at DATETIME NULL COMMENT '结束时间',
+  created_at DATETIME NOT NULL COMMENT '创建时间',
+  updated_at DATETIME NOT NULL COMMENT '更新时间',
+  created_by BIGINT NULL COMMENT '创建人ID',
+  updated_by BIGINT NULL COMMENT '更新人ID',
+  deleted TINYINT NOT NULL DEFAULT 0 COMMENT '是否删除：0否，1是',
+  version INT NOT NULL DEFAULT 1 COMMENT '数据版本号',
+  KEY idx_generation_task_step_task_id (task_id),
+  KEY idx_generation_task_step_project_id (project_id),
+  KEY idx_generation_task_step_status (status)
+) COMMENT='AI生成任务步骤表';
