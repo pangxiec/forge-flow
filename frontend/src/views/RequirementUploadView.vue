@@ -85,6 +85,7 @@
                   filterable
                   :loading="projectLoading"
                   :disabled="projectLoading"
+                  @change="handleProjectChange"
                 >
                   <el-option
                     v-for="project in projectOptions"
@@ -194,6 +195,32 @@
         </div>
 
         <aside class="upload-side">
+          <div class="panel previous-requirement-panel">
+            <div class="panel-header compact">
+              <div>
+                <h2>最近上传</h2>
+                <p>{{ latestRequirement ? `${latestRequirement.title} / ${latestRequirement.versionNo}` : '当前项目暂无历史需求记录。' }}</p>
+              </div>
+              <el-button v-if="latestRequirement" :icon="Document" size="small" @click="applyLatestRequirementToForm">
+                填入表单
+              </el-button>
+            </div>
+            <el-skeleton v-if="loadingLatestRequirement" :rows="4" animated />
+            <el-empty v-else-if="!latestRequirement" description="暂无上传记录" :image-size="72" />
+            <div v-else class="previous-requirement-content">
+              <div class="previous-requirement-meta">
+                <span>{{ latestRequirement.status }}</span>
+                <span>{{ latestRequirement.priority }}</span>
+                <span>{{ latestRequirement.materialCount || 0 }} 个材料</span>
+                <span>{{ formatDateTime(latestRequirement.createdAt) }}</span>
+              </div>
+              <div class="previous-requirement-summary">
+                <strong>{{ latestRequirement.requester }} / {{ latestRequirement.productOwner }}</strong>
+                <p>{{ latestRequirement.background }}</p>
+              </div>
+            </div>
+          </div>
+
           <div class="panel">
             <div class="panel-header compact">
               <div>
@@ -276,7 +303,7 @@ import {
   Tickets,
   UploadFilled,
 } from '@element-plus/icons-vue'
-import { uploadRequirement } from '@/api/requirement'
+import { getLatestRequirement, uploadRequirement, type RequirementDetailResult } from '@/api/requirement'
 import { listProjects } from '@/api/project'
 import type { BackendProject } from '@/types/project'
 
@@ -284,8 +311,10 @@ const router = useRouter()
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const projectLoading = ref(false)
+const loadingLatestRequirement = ref(false)
 const projects = ref<BackendProject[]>([])
 const fileList = ref<UploadUserFile[]>([])
+const latestRequirement = ref<RequirementDetailResult>()
 
 const navItems = [
   { label: '项目工作台', meta: 'Command', icon: Grid, active: false, path: '/' },
@@ -382,12 +411,57 @@ async function loadProjectOptions() {
     if (!form.projectId && data.length > 0) {
       form.projectId = data[0].id
     }
+    await loadLatestRequirement()
   } catch {
     projects.value = []
     ElMessage.warning('项目列表加载失败，请确认后端服务已启动')
   } finally {
     projectLoading.value = false
   }
+}
+
+async function handleProjectChange() {
+  await loadLatestRequirement(true)
+}
+
+async function loadLatestRequirement(showMessage = false) {
+  if (!form.projectId) {
+    latestRequirement.value = undefined
+    return
+  }
+  loadingLatestRequirement.value = true
+  try {
+    latestRequirement.value = await getLatestRequirement(form.projectId)
+    if (showMessage) {
+      ElMessage.success('已加载当前项目最近上传的需求')
+    }
+  } catch {
+    latestRequirement.value = undefined
+    if (showMessage) {
+      ElMessage.info('当前项目暂无历史需求记录')
+    }
+  } finally {
+    loadingLatestRequirement.value = false
+  }
+}
+
+function applyLatestRequirementToForm() {
+  if (!latestRequirement.value) {
+    return
+  }
+  const record = latestRequirement.value
+  form.title = record.title || ''
+  form.sourceType = record.sourceType || '文本'
+  form.priority = record.priority || 'MEDIUM'
+  form.requester = record.requester || ''
+  form.productOwner = record.productOwner || ''
+  form.expectedDate = record.expectedDate || ''
+  form.background = record.background || ''
+  form.objective = record.objective || ''
+  form.scope = record.scope || ''
+  form.sensitiveMasked = record.sensitiveMasked ?? true
+  formRef.value?.clearValidate()
+  ElMessage.success('已填入最近上传的需求信息')
 }
 
 const handleExceed: UploadProps['onExceed'] = () => {
@@ -412,6 +486,13 @@ function formatFileSize(size?: number) {
     return `${(size / 1024).toFixed(1)} KB`
   }
   return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return '-'
+  }
+  return value.replace('T', ' ').slice(0, 16)
 }
 
 async function submitUpload() {

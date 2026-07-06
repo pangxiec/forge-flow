@@ -23,6 +23,26 @@ export interface RequirementUploadResult {
   createdAt: string
 }
 
+export interface RequirementDetailResult {
+  requirementId: string
+  projectId: string
+  title: string
+  sourceType: string
+  priority: string
+  requester: string
+  productOwner: string
+  expectedDate?: string
+  background: string
+  objective: string
+  scope: string
+  materialCount: number
+  status: string
+  versionNo: string
+  sensitiveMasked: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export function uploadRequirement(payload: RequirementUploadPayload) {
   const formData = new FormData()
   formData.append('projectId', String(payload.projectId))
@@ -110,6 +130,20 @@ export interface PrototypeArtifactResult {
   updatedAt: string
 }
 
+export interface GenerationTaskStepResult {
+  id: string
+  taskId: string
+  projectId: string
+  stepOrder: number
+  stepName: string
+  toolName: string
+  status: string
+  summary: string
+  elapsedMillis: number
+  startedAt?: string
+  finishedAt?: string
+}
+
 export function analyzeRequirement(payload: RequirementAnalyzePayload) {
   return http.post<RequirementAnalysisResult, RequirementAnalysisResult>('/requirement/analyze', payload, {
     timeout: 180000,
@@ -118,6 +152,14 @@ export function analyzeRequirement(payload: RequirementAnalyzePayload) {
 
 export function getLatestAnalysis(projectId: string) {
   return http.get<RequirementAnalysisResult, RequirementAnalysisResult>(`/requirement/latest-analysis/${projectId}`)
+}
+
+export function getLatestRequirement(projectId: string) {
+  return http.get<RequirementDetailResult, RequirementDetailResult>(`/requirement/latest/${projectId}`)
+}
+
+export function getRequirementDetail(projectId: string, requirementId: string) {
+  return http.get<RequirementDetailResult, RequirementDetailResult>(`/requirement/${projectId}/${requirementId}`)
 }
 
 export function generatePrd(payload: GeneratePrdPayload) {
@@ -142,4 +184,8 @@ export function generatePrototype(payload: GeneratePrototypePayload) {
 
 export function getLatestPrototype(projectId: string) {
   return http.get<PrototypeArtifactResult, PrototypeArtifactResult>(`/prototype/latest/${projectId}`)
+}
+
+export function getGenerationTaskSteps(taskId: string) {
+  return http.get<GenerationTaskStepResult[], GenerationTaskStepResult[]>(`/generation-task/${taskId}/steps`)
 }

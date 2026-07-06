@@ -6,10 +6,12 @@ import com.forgeflow.common.exception.BizException;
 import com.forgeflow.third.llm.LlmChatRequest;
 import com.forgeflow.third.llm.LlmChatResponse;
 import com.forgeflow.third.properties.LlmProperties;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -55,11 +57,14 @@ public class BailianLlmClient {
 
         long start = System.currentTimeMillis();
         try {
-            String responseJson = restClient.post()
+            byte[] responseBytes = restClient.post()
                     .uri("/chat/completions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
                     .body(requestBody)
                     .retrieve()
-                    .body(String.class);
+                    .body(byte[].class);
+            String responseJson = responseBytes == null ? "" : new String(responseBytes, StandardCharsets.UTF_8);
 
             return LlmChatResponse.builder()
                     .provider(llmProperties.getProvider())

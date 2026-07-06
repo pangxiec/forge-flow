@@ -43,7 +43,7 @@
         </div>
         <div class="topbar-actions">
           <el-button :icon="UploadFilled" @click="activeFlowStep = 'upload'">上传需求</el-button>
-          <el-button :icon="Refresh" :loading="loadingLatest || loadingPrototype" :disabled="!selectedProjectId" @click="refreshLatestResults">
+          <el-button :icon="Refresh" :loading="loadingRequirement || loadingLatest || loadingPrototype" :disabled="!selectedProjectId" @click="refreshLatestResults">
             刷新结果
           </el-button>
           <el-button type="primary" :icon="DocumentChecked" :loading="generating" :disabled="!selectedProjectId" @click="regeneratePrd">
@@ -96,6 +96,50 @@
         </div>
       </section>
 
+      <section class="panel requirement-record-panel">
+        <div class="panel-header">
+          <div>
+            <h2>需求记录</h2>
+            <p>{{ requirementRecord ? `${requirementRecord.title} / ${requirementRecord.versionNo}` : '选择项目后展示最新上传的需求记录。' }}</p>
+          </div>
+          <div class="requirement-record-tools">
+            <el-tag :type="requirementRecord ? 'success' : 'info'" effect="light">
+              {{ requirementRecord?.status || '暂无需求' }}
+            </el-tag>
+            <el-button :icon="Refresh" :loading="loadingRequirement" :disabled="!selectedProjectId" @click="loadLatestRequirement">
+              刷新
+            </el-button>
+          </div>
+        </div>
+
+        <el-skeleton v-if="loadingRequirement" :rows="4" animated />
+        <el-empty v-else-if="!requirementRecord" description="暂无需求记录" :image-size="82">
+          <el-button type="primary" @click="activeFlowStep = 'upload'">上传需求</el-button>
+        </el-empty>
+        <div v-else class="requirement-record-content">
+          <div class="requirement-record-meta">
+            <div v-for="item in requirementMeta" :key="item.label" class="requirement-record-chip">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+          <div class="requirement-record-sections">
+            <article>
+              <strong>业务背景</strong>
+              <p>{{ requirementRecord.background }}</p>
+            </article>
+            <article>
+              <strong>目标与成功标准</strong>
+              <p>{{ requirementRecord.objective }}</p>
+            </article>
+            <article>
+              <strong>范围与边界</strong>
+              <p>{{ requirementRecord.scope }}</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <section v-if="agentBusy" class="agent-waiting-panel" aria-live="polite">
         <div class="agent-waiting-icon">
           <el-icon><Loading /></el-icon>
@@ -107,6 +151,44 @@
         <div class="agent-waiting-time">
           <span>已等待</span>
           <strong>{{ waitingSeconds }}s</strong>
+        </div>
+      </section>
+
+      <section class="panel agent-trace-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Agent 执行轨迹</h2>
+            <p>{{ prdDocument?.taskId ? `Task ${prdDocument.taskId}` : '生成 PRD 后展示 Agent 多步执行过程。' }}</p>
+          </div>
+          <div class="agent-trace-tools">
+            <el-tag :type="agentTraceSteps.length ? 'success' : 'info'" effect="light">
+              {{ agentTraceSteps.length ? `${agentTraceSteps.length} steps` : '暂无轨迹' }}
+            </el-tag>
+            <el-button :icon="Refresh" :loading="loadingAgentTrace" :disabled="!prdDocument?.taskId" @click="loadAgentTrace">
+              刷新
+            </el-button>
+          </div>
+        </div>
+
+        <el-skeleton v-if="loadingAgentTrace" :rows="4" animated />
+        <el-empty v-else-if="!agentTraceSteps.length" description="暂无 Agent 执行轨迹" :image-size="82" />
+        <div v-else class="agent-trace-list">
+          <article v-for="step in agentTraceSteps" :key="step.id" class="agent-trace-step">
+            <div class="agent-trace-index">{{ step.stepOrder }}</div>
+            <div class="agent-trace-body">
+              <div class="agent-trace-title">
+                <strong>{{ step.stepName }}</strong>
+                <span>{{ step.toolName }}</span>
+              </div>
+              <p>{{ step.summary || '-' }}</p>
+            </div>
+            <div class="agent-trace-state">
+              <el-tag :type="step.status === 'SUCCESS' ? 'success' : step.status === 'SKIPPED' ? 'info' : step.status === 'WAITING_USER' ? 'warning' : 'danger'" effect="light">
+                {{ step.status }}
+              </el-tag>
+              <small>{{ formatElapsed(step.elapsedMillis) }}</small>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -413,13 +495,18 @@ import {
   confirmPrd,
   generatePrd,
   generatePrototype,
+  getGenerationTaskSteps,
   getLatestAnalysis,
   getLatestPrd,
   getLatestPrototype,
+  getLatestRequirement,
+  getRequirementDetail,
   uploadRequirement,
+  type GenerationTaskStepResult,
   type PrdDocumentResult,
   type PrototypeArtifactResult,
   type RequirementAnalysisResult,
+  type RequirementDetailResult,
 } from '@/api/requirement'
 import { listProjects } from '@/api/project'
 import type { BackendProject } from '@/types/project'
@@ -435,6 +522,7 @@ const confirmingPrd = ref(false)
 const generatingPrototype = ref(false)
 const loadingLatest = ref(false)
 const loadingPrototype = ref(false)
+const loadingAgentTrace = ref(false)
 const waitingSeconds = ref(0)
 let waitingTimer: number | undefined
 const projects = ref<BackendProject[]>([])
@@ -442,9 +530,12 @@ const selectedProjectId = ref<string>()
 const selectedRequirementId = ref<string>()
 const uploadFormRef = ref<FormInstance>()
 const uploadFileList = ref<UploadUserFile[]>([])
+const requirementRecord = ref<RequirementDetailResult>()
 const analysisResult = ref<RequirementAnalysisResult>()
 const prdDocument = ref<PrdDocumentResult>()
 const prototypeArtifact = ref<PrototypeArtifactResult>()
+const agentTraceSteps = ref<GenerationTaskStepResult[]>([])
+const loadingRequirement = ref(false)
 const analysisViewMode = ref('preview')
 const prdViewMode = ref('preview')
 const prototypeViewMode = ref('preview')
@@ -511,6 +602,23 @@ const projectOptions = computed(() =>
 
 const currentProject = computed(() => projects.value.find((project) => project.id === selectedProjectId.value))
 
+const requirementMeta = computed(() => {
+  const record = requirementRecord.value
+  if (!record) {
+    return []
+  }
+  return [
+    { label: '需求ID', value: record.requirementId },
+    { label: '来源类型', value: record.sourceType || '-' },
+    { label: '优先级', value: record.priority || '-' },
+    { label: '需求方', value: record.requester || '-' },
+    { label: '产品负责人', value: record.productOwner || '-' },
+    { label: '期望日期', value: record.expectedDate || '待确认' },
+    { label: '材料数量', value: `${record.materialCount || 0}` },
+    { label: '上传时间', value: formatDateTime(record.createdAt) },
+  ]
+})
+
 const canSubmitUpload = computed(
   () =>
     Boolean(
@@ -533,7 +641,7 @@ const isHtmlPrototype = computed(() => {
 const prototypeFrameHtml = computed(() => (isHtmlPrototype.value ? prototypeArtifact.value?.content || '' : ''))
 
 const flowSteps = computed<FlowStep[]>(() => {
-  const hasRequirement = Boolean(selectedRequirementId.value || analysisResult.value || prdDocument.value)
+  const hasRequirement = Boolean(requirementRecord.value || selectedRequirementId.value || analysisResult.value || prdDocument.value)
   const hasAnalysis = Boolean(analysisResult.value)
   const hasPrd = Boolean(prdDocument.value)
   const prdConfirmed = prdDocument.value?.status === 'PRD_CONFIRMED'
@@ -645,6 +753,7 @@ onMounted(async () => {
   hydrateRouteParams()
   await loadProjects()
   if (selectedProjectId.value) {
+    await loadRequirementRecord(false)
     await loadLatestAnalysis(false)
     await loadLatestPrd(false)
     await loadLatestPrototype(false)
@@ -713,11 +822,14 @@ async function loadProjects() {
 async function handleProjectChange() {
   uploadForm.projectId = selectedProjectId.value
   selectedRequirementId.value = undefined
+  requirementRecord.value = undefined
   analysisResult.value = undefined
   prdDocument.value = undefined
   prototypeArtifact.value = undefined
+  agentTraceSteps.value = []
   activeFlowStep.value = 'analysis'
   if (selectedProjectId.value) {
+    await loadRequirementRecord(false)
     await loadLatestAnalysis(false)
     await loadLatestPrd(false)
     await loadLatestPrototype(false)
@@ -788,9 +900,11 @@ async function submitRequirementInFlow() {
     })
     selectedProjectId.value = uploadForm.projectId
     selectedRequirementId.value = result.requirementId
+    await loadRequirementRecord(false)
     analysisResult.value = undefined
     prdDocument.value = undefined
     prototypeArtifact.value = undefined
+    agentTraceSteps.value = []
     activeFlowStep.value = 'analysis'
     ElMessage.success('需求已提交，正在进入分析步骤')
     await runAnalysis(false)
@@ -850,6 +964,36 @@ async function loadLatestAnalysis(showMessage = true) {
   }
 }
 
+async function loadRequirementRecord(showMessage = true) {
+  if (!selectedProjectId.value) {
+    return false
+  }
+  loadingRequirement.value = true
+  try {
+    requirementRecord.value = selectedRequirementId.value
+      ? await getRequirementDetail(selectedProjectId.value, selectedRequirementId.value)
+      : await getLatestRequirement(selectedProjectId.value)
+    selectedRequirementId.value = requirementRecord.value.requirementId
+    if (showMessage) {
+      ElMessage.success('已刷新最新需求记录')
+    }
+    return true
+  } catch {
+    requirementRecord.value = undefined
+    if (showMessage) {
+      ElMessage.info('当前项目暂无需求记录，可先上传')
+    }
+    return false
+  } finally {
+    loadingRequirement.value = false
+  }
+}
+
+async function loadLatestRequirement(showMessage = true) {
+  selectedRequirementId.value = undefined
+  return loadRequirementRecord(showMessage)
+}
+
 async function regeneratePrd() {
   if (!selectedProjectId.value) {
     ElMessage.warning('请先选择项目')
@@ -871,6 +1015,7 @@ async function regeneratePrd() {
     })
     selectedRequirementId.value = prdDocument.value.requirementId
     prototypeArtifact.value = undefined
+    await loadAgentTrace(false)
     activeFlowStep.value = 'prd'
     ElMessage.success('PRD 已生成')
   } catch {
@@ -900,6 +1045,7 @@ async function refreshLatestResults() {
   if (!selectedProjectId.value) {
     return
   }
+  await loadRequirementRecord(false)
   await loadLatestAnalysis(false)
   await loadLatestPrd(false)
   await loadLatestPrototype(false)
@@ -915,6 +1061,7 @@ async function loadLatestPrd(showMessage = true) {
   try {
     prdDocument.value = await getLatestPrd(selectedProjectId.value)
     selectedRequirementId.value = prdDocument.value.requirementId
+    await loadAgentTrace(false)
     if (showMessage) {
       activeFlowStep.value = 'prd'
     }
@@ -923,11 +1070,35 @@ async function loadLatestPrd(showMessage = true) {
     }
   } catch {
     prdDocument.value = undefined
+    agentTraceSteps.value = []
     if (showMessage) {
       ElMessage.info('当前项目暂无 PRD，可先生成')
     }
   } finally {
     loadingLatest.value = false
+  }
+}
+
+async function loadAgentTrace(showMessage = true) {
+  if (!prdDocument.value?.taskId) {
+    agentTraceSteps.value = []
+    return false
+  }
+  loadingAgentTrace.value = true
+  try {
+    agentTraceSteps.value = await getGenerationTaskSteps(prdDocument.value.taskId)
+    if (showMessage) {
+      ElMessage.success('已刷新 Agent 执行轨迹')
+    }
+    return true
+  } catch {
+    agentTraceSteps.value = []
+    if (showMessage) {
+      ElMessage.warning('Agent 执行轨迹加载失败')
+    }
+    return false
+  } finally {
+    loadingAgentTrace.value = false
   }
 }
 
@@ -1021,6 +1192,16 @@ function formatDateTime(value?: string) {
     return '-'
   }
   return value.replace('T', ' ').slice(0, 16)
+}
+
+function formatElapsed(value?: number) {
+  if (!value) {
+    return '0ms'
+  }
+  if (value < 1000) {
+    return `${value}ms`
+  }
+  return `${(value / 1000).toFixed(1)}s`
 }
 
 function goTo(path: string) {
