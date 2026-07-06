@@ -8,5 +8,8 @@ public record PrdAgentExecution(
         PrdAgent.RequirementAnalysis analysis,
         String prdMarkdown,
         PrdAgentReview review,
-        List<PrdAgentStep> steps) {
+        List<PrdAgentStep> steps,
+        boolean clarificationRequired,
+        List<String> clarificationQuestions,
+        String memorySummary) {
 }

@@ -183,7 +183,7 @@
               <p>{{ step.summary || '-' }}</p>
             </div>
             <div class="agent-trace-state">
-              <el-tag :type="step.status === 'SUCCESS' ? 'success' : step.status === 'SKIPPED' ? 'info' : 'danger'" effect="light">
+              <el-tag :type="step.status === 'SUCCESS' ? 'success' : step.status === 'SKIPPED' ? 'info' : step.status === 'WAITING_USER' ? 'warning' : 'danger'" effect="light">
                 {{ step.status }}
               </el-tag>
               <small>{{ formatElapsed(step.elapsedMillis) }}</small>

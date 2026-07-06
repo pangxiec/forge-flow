@@ -195,6 +195,46 @@ public class PrdAgent {
     public PrdAgentExecution run(Requirement requirement, RequirementAnalysis analysis) {
         List<PrdAgentStep> steps = new ArrayList<>();
 
+        AutonomyAssessment assessment = executeStep(steps, "assess-autonomy", "AutonomousPrdPlanner",
+                () -> assessAutonomy(requirement, analysis));
+        if (assessment.clarificationRequired()) {
+            String clarificationDoc = executeStep(steps, "request-clarification", "ClarificationTool",
+                    () -> buildClarificationDocument(requirement, analysis, assessment));
+            PrdAgentReview blockedReview = PrdAgentReview.builder()
+                    .passed(false)
+                    .summary("Agent stopped before generation and requested user clarification.")
+                    .issues(assessment.questions())
+                    .suggestions(List.of("补充澄清问题后重新触发 PRD Agent。"))
+                    .build();
+            steps.add(PrdAgentStep.builder()
+                    .name("await-user-input")
+                    .tool("ClarificationTool")
+                    .status("WAITING_USER")
+                    .summary(toMarkdownList(assessment.questions()))
+                    .elapsedMillis(0)
+                    .build());
+            steps.add(PrdAgentStep.builder()
+                    .name("generate-draft")
+                    .tool("PrdDraftGeneratorTool")
+                    .status("SKIPPED")
+                    .summary("Skipped because critical requirement information is missing.")
+                    .elapsedMillis(0)
+                    .build());
+            String memorySummary = executeStep(steps, "memory-save", "PrdMemoryTool",
+                    () -> buildMemorySummary(requirement, assessment, null, blockedReview, true, 0));
+            log.info("PRD Agent autonomous flow requested clarification requirementId={}, questions={}",
+                    requirement.getId(), assessment.questions().size());
+            return PrdAgentExecution.builder()
+                    .analysis(analysis)
+                    .prdMarkdown(clarificationDoc)
+                    .review(blockedReview)
+                    .steps(Collections.unmodifiableList(steps))
+                    .clarificationRequired(true)
+                    .clarificationQuestions(assessment.questions())
+                    .memorySummary(memorySummary)
+                    .build();
+        }
+
         PrdToolPlan toolPlan = executeStep(steps, "select-tools", "PrdToolPlanner",
                 () -> planTools(requirement, analysis));
 
@@ -207,29 +247,152 @@ public class PrdAgent {
         PrdAgentReview review = executeStep(steps, "review-draft", "PrdReviewTool",
                 () -> reviewPrdDynamic(requirement, analysis, draft));
 
-        String finalPrd;
-        if (review.passed() && review.issues().isEmpty()) {
-            finalPrd = draft;
+        String finalPrd = draft;
+        PrdAgentReview currentReview = review;
+        int completedRevisions = 0;
+        int maxRevisions = 2;
+        while ((!currentReview.passed() || !currentReview.issues().isEmpty()) && completedRevisions < maxRevisions) {
+            int revisionNo = completedRevisions + 1;
+            String revisionSource = finalPrd;
+            PrdAgentReview revisionReview = currentReview;
+            finalPrd = executeStep(steps, "revise-draft-" + revisionNo, "PrdRevisionTool",
+                    () -> revisePrdDynamic(requirement, analysis, revisionSource, revisionReview, toolContext));
+            completedRevisions++;
+            String reviewTarget = finalPrd;
+            int reviewNo = completedRevisions + 1;
+            currentReview = executeStep(steps, "review-draft-" + reviewNo, "PrdReviewTool",
+                    () -> reviewPrdDynamic(requirement, analysis, reviewTarget));
+        }
+
+        if (completedRevisions == 0) {
             steps.add(PrdAgentStep.builder()
                     .name("revise-draft")
                     .tool("PrdRevisionTool")
                     .status("SKIPPED")
-                    .summary("PRD self-review passed; no revision required.")
+                    .summary("Autonomous review passed; no revision required.")
                     .elapsedMillis(0)
                     .build());
-        } else {
-            finalPrd = executeStep(steps, "revise-draft", "PrdRevisionTool",
-                    () -> revisePrdDynamic(requirement, analysis, draft, review, toolContext));
         }
 
-        log.info("PRD Agent tool-calling flow completed requirementId={}, tools={}, steps={}",
-                requirement.getId(), toolPlan.toolNames(), steps.stream().map(PrdAgentStep::name).toList());
+        PrdAgentReview memoryReview = currentReview;
+        int memoryRevisionCount = completedRevisions;
+        String memorySummary = executeStep(steps, "memory-save", "PrdMemoryTool",
+                () -> buildMemorySummary(requirement, assessment, toolPlan, memoryReview, false, memoryRevisionCount));
+
+        log.info("PRD Agent autonomous flow completed requirementId={}, tools={}, revisions={}, steps={}",
+                requirement.getId(), toolPlan.toolNames(), completedRevisions, steps.stream().map(PrdAgentStep::name).toList());
         return PrdAgentExecution.builder()
                 .analysis(analysis)
                 .prdMarkdown(finalPrd)
-                .review(review)
+                .review(currentReview)
                 .steps(Collections.unmodifiableList(steps))
+                .clarificationRequired(false)
+                .clarificationQuestions(assessment.questions())
+                .memorySummary(memorySummary)
                 .build();
+    }
+
+    private AutonomyAssessment assessAutonomy(Requirement requirement, RequirementAnalysis analysis) {
+        List<String> questions = new ArrayList<>(extractMarkdownItems(analysis.clarificationQuestions()));
+        if (textLength(requirement.getBackground()) < 20) {
+            questions.add("请补充业务背景：当前问题、触发原因、涉及用户或组织范围是什么？");
+        }
+        if (textLength(requirement.getObjective()) < 20) {
+            questions.add("请补充业务目标和成功标准：上线后用什么指标判断完成？");
+        }
+        if (textLength(requirement.getScope()) < 15) {
+            questions.add("请补充范围边界：本次必须包含什么，明确不包含什么？");
+        }
+        if (requirement.getExpectedDate() == null) {
+            questions.add("请确认期望交付或验收日期。");
+        }
+        if (requirement.getMaterialCount() == null || requirement.getMaterialCount() == 0) {
+            questions.add("如有流程图、字段清单、原型截图或历史材料，请补充上传。");
+        }
+
+        List<String> distinctQuestions = questions.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .limit(8)
+                .toList();
+        long weakCoreFields = List.of(requirement.getBackground(), requirement.getObjective(), requirement.getScope())
+                .stream()
+                .filter(value -> textLength(value) < 15)
+                .count();
+        boolean criticalMissing = weakCoreFields >= 2;
+        String decision = criticalMissing
+                ? "WAITING_USER: critical background/objective/scope information is missing."
+                : "CONTINUE: enough information for autonomous PRD generation.";
+        return new AutonomyAssessment(criticalMissing, distinctQuestions, decision);
+    }
+
+    private String buildClarificationDocument(
+            Requirement requirement,
+            RequirementAnalysis analysis,
+            AutonomyAssessment assessment) {
+        return String.join("\n",
+                "# " + normalize(requirement.getTitle()) + " PRD",
+                "",
+                "## Agent 状态",
+                "当前需求信息不足，PRD Agent 已暂停正式生成并进入主动澄清状态。",
+                "",
+                "## 已识别信息",
+                analysis.structuredSummary(),
+                "",
+                "## 缺失信息",
+                analysis.missingInfo(),
+                "",
+                "## 需要需求方补充的问题",
+                toMarkdownList(assessment.questions()),
+                "",
+                "## 下一步",
+                "补充以上信息后重新触发 PRD Agent，Agent 将继续执行工具选择、PRD 生成、评审、修订和记忆沉淀。");
+    }
+
+    private String buildMemorySummary(
+            Requirement requirement,
+            AutonomyAssessment assessment,
+            PrdToolPlan toolPlan,
+            PrdAgentReview review,
+            boolean waitingUser,
+            int revisionCount) {
+        List<String> lines = new ArrayList<>();
+        lines.add("requirementId=" + requirement.getId());
+        lines.add("decision=" + assessment.decision());
+        lines.add("state=" + (waitingUser ? "WAITING_USER" : "COMPLETED"));
+        lines.add("revisionCount=" + revisionCount);
+        if (toolPlan != null) {
+            lines.add("tools=" + String.join(",", toolPlan.toolNames()));
+        }
+        lines.add("reviewPassed=" + review.passed());
+        if (!review.issues().isEmpty()) {
+            lines.add("openIssues=" + String.join(" | ", review.issues()));
+        }
+        if (!assessment.questions().isEmpty()) {
+            lines.add("clarificationQuestions=" + String.join(" | ", assessment.questions()));
+        }
+        return truncate(String.join("; ", lines), 1200);
+    }
+
+    private List<String> extractMarkdownItems(String text) {
+        if (!StringUtils.hasText(text)) {
+            return List.of();
+        }
+        List<String> items = new ArrayList<>();
+        for (String line : text.split("\\R")) {
+            String item = line.replaceFirst("^\\s*[-*]\\s*", "").trim();
+            if (StringUtils.hasText(item)
+                    && !item.contains("暂无")
+                    && !item.contains("无明显")
+                    && !item.toLowerCase().contains("none")) {
+                items.add(item);
+            }
+        }
+        return items;
+    }
+
+    private record AutonomyAssessment(boolean clarificationRequired, List<String> questions, String decision) {
     }
 
     private PrdToolPlan planTools(Requirement requirement, RequirementAnalysis analysis) {
@@ -302,7 +465,7 @@ public class PrdAgent {
             switch (toolName) {
                 case "PRD_TEMPLATE_TOOL" -> contexts.add(loadPrdTemplateContext());
                 case "PRD_VALIDATOR_TOOL" -> contexts.add(loadValidatorContext());
-                case "KNOWLEDGE_BASE_TOOL" -> contexts.add(loadKnowledgeContextDynamic());
+                case "KNOWLEDGE_BASE_TOOL" -> contexts.add(loadKnowledgeContextDynamic(requirement, analysis));
                 case "HISTORY_PRD_TOOL" -> contexts.add(loadHistoryPrdContext(requirement));
                 default -> log.warn("PRD Agent ignored unknown tool: {}", toolName);
             }
@@ -419,30 +582,154 @@ public class PrdAgent {
                 StringUtils.hasText(knowledgeContext) ? knowledgeContext : "暂无可用工具上下文");
     }
 
-    private String loadKnowledgeContextDynamic() {
+    private String loadKnowledgeContextDynamic(Requirement requirement, RequirementAnalysis analysis) {
         Path knowledgeBase = Path.of("knowledge-base");
         if (!Files.isDirectory(knowledgeBase)) {
             return "";
         }
-        StringBuilder builder = new StringBuilder("## KNOWLEDGE_BASE_TOOL");
+        String searchText = buildKnowledgeSearchText(requirement, analysis);
+        List<String> keywords = extractKnowledgeKeywords(searchText);
+        List<String> modules = inferKnowledgeModules(searchText);
+        List<KnowledgeSegment> segments = new ArrayList<>();
+
         try (var files = Files.list(knowledgeBase)) {
             files.filter(path -> path.getFileName().toString().endsWith(".md"))
                     .sorted()
-                    .limit(3)
-                    .forEach(path -> appendKnowledgeFileDynamic(builder, path));
+                    .forEach(path -> segments.addAll(readKnowledgeSegments(path)));
         } catch (IOException e) {
             log.warn("PRD Agent failed to load knowledge base: {}", e.getMessage());
+        }
+
+        List<KnowledgeSegment> matchedSegments = segments.stream()
+                .map(segment -> segment.withScore(scoreKnowledgeSegment(segment, keywords, modules)))
+                .filter(segment -> segment.score() > 0)
+                .sorted((left, right) -> Integer.compare(right.score(), left.score()))
+                .limit(5)
+                .toList();
+
+        if (matchedSegments.isEmpty()) {
+            matchedSegments = segments.stream().limit(2).toList();
+        }
+
+        StringBuilder builder = new StringBuilder("## KNOWLEDGE_BASE_TOOL\n");
+        builder.append("检索模块：").append(modules.isEmpty() ? "通用" : String.join("、", modules)).append("\n");
+        builder.append("检索关键词：").append(keywords.isEmpty() ? "无显式关键词" : String.join("、", keywords)).append("\n");
+        for (KnowledgeSegment segment : matchedSegments) {
+            builder.append("\n### ")
+                    .append(segment.fileName())
+                    .append(" / ")
+                    .append(segment.heading())
+                    .append(" / score=")
+                    .append(segment.score())
+                    .append("\n")
+                    .append(truncate(segment.content(), 1400));
         }
         return truncate(builder.toString(), 6000);
     }
 
-    private void appendKnowledgeFileDynamic(StringBuilder builder, Path path) {
+    private String buildKnowledgeSearchText(Requirement requirement, RequirementAnalysis analysis) {
+        return String.join(" ",
+                normalize(requirement.getTitle()),
+                normalize(requirement.getSourceType()),
+                normalize(requirement.getPriority()),
+                normalize(requirement.getBackground()),
+                normalize(requirement.getObjective()),
+                normalize(requirement.getScope()),
+                analysis.structuredSummary(),
+                analysis.missingInfo(),
+                analysis.clarificationQuestions()).toLowerCase();
+    }
+
+    private List<String> extractKnowledgeKeywords(String searchText) {
+        List<String> candidates = List.of(
+                "数据库", "表", "字段", "索引", "mysql",
+                "接口", "api", "controller", "service", "mapper",
+                "权限", "审批", "角色", "状态", "流程",
+                "后端", "spring", "mybatis", "redis", "minio",
+                "异常", "审计", "日志", "版本", "冻结",
+                "测试", "验收", "性能", "安全");
+        List<String> keywords = new ArrayList<>();
+        for (String candidate : candidates) {
+            if (searchText.contains(candidate.toLowerCase())) {
+                keywords.add(candidate);
+            }
+        }
+        return keywords;
+    }
+
+    private List<String> inferKnowledgeModules(String searchText) {
+        List<String> modules = new ArrayList<>();
+        if (containsAny(searchText, "数据库", "表", "字段", "索引", "mysql")) {
+            modules.add("数据库设计");
+        }
+        if (containsAny(searchText, "后端", "接口", "api", "controller", "service", "mapper", "spring")) {
+            modules.add("后端工程");
+        }
+        if (containsAny(searchText, "权限", "审批", "角色", "状态", "流程")) {
+            modules.add("业务流程与权限");
+        }
+        if (containsAny(searchText, "测试", "验收", "异常", "性能", "安全")) {
+            modules.add("质量与验收");
+        }
+        return modules;
+    }
+
+    private List<KnowledgeSegment> readKnowledgeSegments(Path path) {
+        List<KnowledgeSegment> segments = new ArrayList<>();
         try {
-            String content = Files.readString(path, StandardCharsets.UTF_8);
-            builder.append("\n\n# ").append(path.getFileName()).append("\n")
-                    .append(truncate(content, 2500));
+            List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+            String heading = path.getFileName().toString();
+            StringBuilder content = new StringBuilder();
+            for (String line : lines) {
+                if (line.startsWith("## ")) {
+                    addKnowledgeSegment(segments, path, heading, content);
+                    heading = line.replaceFirst("^#+\\s*", "").trim();
+                    content = new StringBuilder(line).append("\n");
+                } else {
+                    content.append(line).append("\n");
+                }
+            }
+            addKnowledgeSegment(segments, path, heading, content);
         } catch (IOException e) {
             log.warn("PRD Agent failed to read knowledge file path={}, message={}", path, e.getMessage());
+        }
+        return segments;
+    }
+
+    private void addKnowledgeSegment(List<KnowledgeSegment> segments, Path path, String heading, StringBuilder content) {
+        String text = content.toString().trim();
+        if (!StringUtils.hasText(text)) {
+            return;
+        }
+        segments.add(new KnowledgeSegment(path.getFileName().toString(), heading, text, 0));
+    }
+
+    private int scoreKnowledgeSegment(KnowledgeSegment segment, List<String> keywords, List<String> modules) {
+        String haystack = (segment.fileName() + " " + segment.heading() + " " + segment.content()).toLowerCase();
+        int score = 0;
+        for (String keyword : keywords) {
+            String normalized = keyword.toLowerCase();
+            if (segment.fileName().toLowerCase().contains(normalized)) {
+                score += 8;
+            }
+            if (segment.heading().toLowerCase().contains(normalized)) {
+                score += 6;
+            }
+            if (haystack.contains(normalized)) {
+                score += 2;
+            }
+        }
+        for (String module : modules) {
+            if (haystack.contains(module.toLowerCase())) {
+                score += 5;
+            }
+        }
+        return score;
+    }
+
+    private record KnowledgeSegment(String fileName, String heading, String content, int score) {
+        private KnowledgeSegment withScore(int newScore) {
+            return new KnowledgeSegment(fileName, heading, content, newScore);
         }
     }
 
@@ -549,77 +836,6 @@ public class PrdAgent {
                 "",
                 "知识库与团队规范摘要：",
                 StringUtils.hasText(knowledgeContext) ? knowledgeContext : "暂无可用知识库摘要");
-    }
-
-    private String loadKnowledgeContext() {
-        Path knowledgeBase = Path.of("knowledge-base");
-        if (!Files.isDirectory(knowledgeBase)) {
-            return "";
-        }
-        StringBuilder builder = new StringBuilder();
-        try (var files = Files.list(knowledgeBase)) {
-            files.filter(path -> path.getFileName().toString().endsWith(".md"))
-                    .sorted()
-                    .limit(3)
-                    .forEach(path -> appendKnowledgeFile(builder, path));
-        } catch (IOException e) {
-            log.warn("PRD Agent failed to load knowledge base: {}", e.getMessage());
-        }
-        return truncate(builder.toString(), 6000);
-    }
-
-    private void appendKnowledgeFile(StringBuilder builder, Path path) {
-        try {
-            String content = Files.readString(path, StandardCharsets.UTF_8);
-            builder.append("\n\n# ").append(path.getFileName()).append("\n")
-                    .append(truncate(content, 2500));
-        } catch (IOException e) {
-            log.warn("PRD Agent failed to read knowledge file path={}, message={}", path, e.getMessage());
-        }
-    }
-
-    private PrdAgentReview reviewPrd(Requirement requirement, RequirementAnalysis analysis, String prdMarkdown) {
-        try {
-            String llmResponse = llmGateway.chat(LlmChatRequest.builder()
-                    .scene("prd-review")
-                    .projectId(requirement.getProjectId())
-                    .bizType("requirement")
-                    .bizId(requirement.getId())
-                    .systemPrompt(PRD_REVIEW_SYSTEM_PROMPT)
-                    .userPrompt(buildReviewUserPrompt(requirement, analysis, prdMarkdown))
-                    .timeoutSeconds(120)
-                    .build()).getContent();
-            return parseReviewResponse(llmResponse);
-        } catch (Exception e) {
-            log.warn("PRD Agent review fell back to local rules: {}", e.getMessage());
-            return localReviewPrd(prdMarkdown);
-        }
-    }
-
-    private String revisePrd(
-            Requirement requirement,
-            RequirementAnalysis analysis,
-            String draft,
-            PrdAgentReview review,
-            String knowledgeContext) {
-        try {
-            String llmResponse = llmGateway.chat(LlmChatRequest.builder()
-                    .scene("prd-revision")
-                    .projectId(requirement.getProjectId())
-                    .bizType("requirement")
-                    .bizId(requirement.getId())
-                    .systemPrompt(PRD_REVISION_SYSTEM_PROMPT)
-                    .userPrompt(buildRevisionUserPrompt(requirement, analysis, draft, review, knowledgeContext))
-                    .timeoutSeconds(180)
-                    .build()).getContent();
-            String revised = stripMarkdownFence(llmResponse);
-            if (StringUtils.hasText(revised)) {
-                return revised;
-            }
-        } catch (Exception e) {
-            log.warn("PRD Agent revision fell back to draft: {}", e.getMessage());
-        }
-        return draft;
     }
 
     private String buildReviewUserPrompt(Requirement requirement, RequirementAnalysis analysis, String prdMarkdown) {
@@ -780,6 +996,9 @@ public class PrdAgent {
         }
         if (result instanceof PrdToolPlan plan) {
             return selectedToolsSummary(plan);
+        }
+        if (result instanceof AutonomyAssessment assessment) {
+            return assessment.decision() + "; clarificationQuestions=" + assessment.questions().size();
         }
         return result.getClass().getSimpleName();
     }
