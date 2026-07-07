@@ -19,6 +19,8 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -308,8 +310,7 @@ public class PrdAgent {
                 .distinct()
                 .limit(8)
                 .toList();
-        long weakCoreFields = List.of(requirement.getBackground(), requirement.getObjective(), requirement.getScope())
-                .stream()
+        long weakCoreFields = Stream.of(requirement.getBackground(), requirement.getObjective(), requirement.getScope())
                 .filter(value -> textLength(value) < 15)
                 .count();
         boolean criticalMissing = weakCoreFields >= 2;
@@ -767,47 +768,6 @@ public class PrdAgent {
             log.warn("PRD Agent revision fell back to draft: {}", e.getMessage());
         }
         return draft;
-    }
-
-    private String buildPrdUserPrompt(Requirement requirement, RequirementAnalysis analysis, String knowledgeContext) {
-        String expectedDate = requirement.getExpectedDate() == null
-                ? "待确认"
-                : requirement.getExpectedDate().format(DateTimeFormatter.ISO_LOCAL_DATE);
-
-        return String.join("\n",
-                "请为以下需求生成正式PRD：",
-                "",
-                "项目ID：" + requirement.getProjectId(),
-                "需求ID：" + requirement.getId(),
-                "需求标题：" + normalize(requirement.getTitle()),
-                "需求版本：" + normalize(requirement.getVersionNo()),
-                "需求来源：" + normalize(requirement.getSourceType()),
-                "优先级：" + normalize(requirement.getPriority()),
-                "需求方：" + normalize(requirement.getRequester()),
-                "产品负责人：" + normalize(requirement.getProductOwner()),
-                "期望完成日期：" + expectedDate,
-                "补充材料数量：" + (requirement.getMaterialCount() == null ? 0 : requirement.getMaterialCount()),
-                "",
-                "业务背景：",
-                normalize(requirement.getBackground()),
-                "",
-                "目标与成功标准：",
-                normalize(requirement.getObjective()),
-                "",
-                "范围与边界：",
-                normalize(requirement.getScope()),
-                "",
-                "结构化摘要：",
-                analysis.structuredSummary(),
-                "",
-                "缺失信息：",
-                analysis.missingInfo(),
-                "",
-                "待澄清问题：",
-                analysis.clarificationQuestions(),
-                "",
-                "知识库与团队规范摘要：",
-                StringUtils.hasText(knowledgeContext) ? knowledgeContext : "暂无可用知识库摘要");
     }
 
     private String buildReviewUserPrompt(Requirement requirement, RequirementAnalysis analysis, String prdMarkdown) {
