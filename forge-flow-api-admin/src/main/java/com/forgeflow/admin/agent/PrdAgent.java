@@ -768,26 +768,6 @@ public class PrdAgent {
         }
         return draft;
     }
-    private String generatePrdDraft(Requirement requirement, RequirementAnalysis analysis, String knowledgeContext) {
-        try {
-            String llmResponse = llmGateway.chat(LlmChatRequest.builder()
-                    .scene("prd-generation")
-                    .projectId(requirement.getProjectId())
-                    .bizType("requirement")
-                    .bizId(requirement.getId())
-                    .systemPrompt(PRD_SYSTEM_PROMPT)
-                    .userPrompt(buildPrdUserPrompt(requirement, analysis, knowledgeContext))
-                    .timeoutSeconds(180)
-                    .build()).getContent();
-            String prdMarkdown = stripMarkdownFence(llmResponse);
-            if (StringUtils.hasText(prdMarkdown)) {
-                return prdMarkdown;
-            }
-        } catch (Exception e) {
-            log.warn("PRD Agent document generation fell back to local rules: {}", e.getMessage());
-        }
-        return localGeneratePrd(requirement, analysis);
-    }
 
     private String buildPrdUserPrompt(Requirement requirement, RequirementAnalysis analysis, String knowledgeContext) {
         String expectedDate = requirement.getExpectedDate() == null
