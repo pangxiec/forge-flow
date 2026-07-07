@@ -2,7 +2,9 @@ package com.forgeflow.admin.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.forgeflow.admin.agent.PrototypeAgent;
+import com.forgeflow.admin.agent.PrototypeAgentExecution;
 import com.forgeflow.admin.service.AuditLogService;
+import com.forgeflow.admin.service.GenerationTaskStepService;
 import com.forgeflow.admin.service.PrototypeService;
 import com.forgeflow.common.enums.ProjectStatusEnum;
 import com.forgeflow.common.enums.UserRoleEnum;
@@ -52,6 +54,9 @@ public class PrototypeServiceImpl implements PrototypeService {
     private GenerationTaskMapper generationTaskMapper;
 
     @Resource
+    private GenerationTaskStepService generationTaskStepService;
+
+    @Resource
     private AuditLogService auditLogService;
 
     @Resource
@@ -81,13 +86,15 @@ public class PrototypeServiceImpl implements PrototypeService {
         task.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
         generationTaskMapper.insert(task);
 
+        PrototypeAgentExecution execution = prototypeAgent.run(requirement, prdDocument);
+
         PrototypeArtifact prototypeArtifact = new PrototypeArtifact();
         prototypeArtifact.setProjectId(project.getId());
         prototypeArtifact.setRequirementId(requirement.getId());
         prototypeArtifact.setPrdId(prdDocument.getId());
         prototypeArtifact.setTitle(requirement.getTitle() + " 页面原型");
         prototypeArtifact.setPrototypeType(PROTOTYPE_TYPE_HTML);
-        prototypeArtifact.setContent(prototypeAgent.generatePrototype(requirement, prdDocument));
+        prototypeArtifact.setContent(execution.html());
         prototypeArtifact.setStatus(PROTOTYPE_STATUS_REVIEWING);
         prototypeArtifact.setVersionNo(nextPrototypeVersion(project.getId()));
         prototypeArtifact.setCreatedBy(operatorId(reqVo.getOperatorId(), project));
@@ -98,6 +105,8 @@ public class PrototypeServiceImpl implements PrototypeService {
         task.setOutputArtifactId(prototypeArtifact.getId());
         task.setFinishedAt(LocalDateTime.now());
         generationTaskMapper.updateById(task);
+        generationTaskStepService.savePrdAgentSteps(task.getId(), project.getId(),
+                operatorId(reqVo.getOperatorId(), project), execution.steps());
 
         project.setCurrentStage(ProjectStatusEnum.PROTOTYPE_REVIEWING.getCode());
         project.setStatus(ProjectStatusEnum.PROTOTYPE_REVIEWING.getCode());
