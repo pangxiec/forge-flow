@@ -55,10 +55,6 @@ public class PrototypeAgent {
     @Resource
     private PrototypeArtifactMapper prototypeArtifactMapper;
 
-    public String generatePrototype(Requirement requirement, PrdDocument prdDocument) {
-        return run(requirement, prdDocument).html();
-    }
-
     public PrototypeAgentExecution run(Requirement requirement, PrdDocument prdDocument) {
         List<PrdAgentStep> steps = new ArrayList<>();
 
