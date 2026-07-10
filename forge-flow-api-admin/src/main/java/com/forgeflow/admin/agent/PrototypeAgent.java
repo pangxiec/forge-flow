@@ -1,6 +1,11 @@
 package com.forgeflow.admin.agent;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.forgeflow.admin.agent.runtime.AgentNodeResult;
+import com.forgeflow.admin.agent.runtime.AgentRunResult;
+import com.forgeflow.admin.agent.runtime.AgentRuntime;
+import com.forgeflow.admin.agent.runtime.AgentRuntimeStep;
+import com.forgeflow.admin.agent.runtime.AgentWorkflow;
 import com.forgeflow.dao.domain.PrdDocument;
 import com.forgeflow.dao.domain.PrototypeArtifact;
 import com.forgeflow.dao.domain.Requirement;
@@ -55,7 +60,135 @@ public class PrototypeAgent {
     @Resource
     private PrototypeArtifactMapper prototypeArtifactMapper;
 
+    @Resource
+    private AgentRuntime agentRuntime;
+
     public PrototypeAgentExecution run(Requirement requirement, PrdDocument prdDocument) {
+        return startRuntime(null, prdDocument.getProjectId(), null, requirement, prdDocument);
+    }
+
+    public PrototypeAgentExecution run(
+            Long taskId,
+            Long projectId,
+            Long operatorId,
+            Requirement requirement,
+            PrdDocument prdDocument) {
+        return startRuntime(taskId, projectId, operatorId, requirement, prdDocument);
+    }
+
+    public PrototypeAgentExecution resume(
+            Long taskId,
+            Long projectId,
+            Long operatorId,
+            Requirement requirement,
+            PrdDocument prdDocument) {
+        PrototypeWorkflowState refreshedState = new PrototypeWorkflowState();
+        refreshedState.requirement = requirement;
+        refreshedState.prdDocument = prdDocument;
+        AgentRunResult<PrototypeWorkflowState> result = agentRuntime.resume(
+                taskId, operatorId, workflow(), refreshedState);
+        return toExecution(result);
+    }
+
+    private PrototypeAgentExecution startRuntime(
+            Long taskId,
+            Long projectId,
+            Long operatorId,
+            Requirement requirement,
+            PrdDocument prdDocument) {
+        PrototypeWorkflowState initialState = new PrototypeWorkflowState();
+        initialState.requirement = requirement;
+        initialState.prdDocument = prdDocument;
+        AgentRunResult<PrototypeWorkflowState> result = agentRuntime.start(
+                taskId, projectId, operatorId, workflow(), initialState);
+        return toExecution(result);
+    }
+
+    private AgentWorkflow<PrototypeWorkflowState> workflow() {
+        return AgentWorkflow.builder("PROTOTYPE", PrototypeWorkflowState.class)
+                .startAt("assess-autonomy")
+                .node("assess-autonomy", "PrototypePlanner", state -> {
+                    state.assessment = assessAutonomy(state.requirement, state.prdDocument);
+                    String nextNode = state.assessment.clarificationRequired()
+                            ? "request-clarification" : "select-tools";
+                    return AgentNodeResult.next(nextNode, stepSummary(state.assessment));
+                })
+                .node("request-clarification", "PrototypeClarificationTool", state -> {
+                    state.clarificationRequired = true;
+                    state.finalHtml = buildClarificationHtml(state.requirement, state.assessment);
+                    state.review = PrototypeAgentReview.builder()
+                            .passed(false)
+                            .summary("Prototype Agent is waiting for PRD clarification.")
+                            .issues(state.assessment.questions())
+                            .suggestions(List.of("Complete page, field, flow, and interaction details, then resume."))
+                            .build();
+                    state.memorySummary = buildMemorySummary(
+                            state.requirement, state.assessment, null, state.review, true, 0);
+                    return AgentNodeResult.waiting("assess-autonomy", toMarkdownList(state.assessment.questions()));
+                })
+                .node("select-tools", "PrototypeToolPlanner", state -> {
+                    state.toolPlan = planTools(state.requirement, state.prdDocument, state.assessment);
+                    return AgentNodeResult.next("call-tools", stepSummary(state.toolPlan));
+                })
+                .node("call-tools", "PrototypeToolRegistry", state -> {
+                    state.toolContext = executeSelectedTools(
+                            state.requirement, state.prdDocument, state.assessment, state.toolPlan);
+                    return AgentNodeResult.next("generate-html", stepSummary(state.toolContext));
+                })
+                .node("generate-html", "PrototypeHtmlGeneratorTool", state -> {
+                    state.finalHtml = generateHtml(
+                            state.requirement, state.prdDocument, state.assessment, state.toolContext);
+                    return AgentNodeResult.next("review-prototype", stepSummary(state.finalHtml));
+                })
+                .node("review-prototype", "PrototypeReviewTool", state -> {
+                    state.review = reviewPrototype(state.finalHtml, state.assessment);
+                    boolean needsRevision = (!state.review.passed() || !state.review.issues().isEmpty())
+                            && state.completedRevisions < MAX_REVISIONS;
+                    return AgentNodeResult.next(needsRevision ? "revise-html" : "memory-save",
+                            stepSummary(state.review));
+                })
+                .node("revise-html", "PrototypeRevisionTool", state -> {
+                    state.finalHtml = reviseHtml(
+                            state.requirement, state.prdDocument, state.finalHtml, state.review, state.toolContext);
+                    state.completedRevisions++;
+                    return AgentNodeResult.next("review-prototype",
+                            "revision=" + state.completedRevisions + "; " + stepSummary(state.finalHtml));
+                })
+                .node("memory-save", "PrototypeMemoryTool", state -> {
+                    state.clarificationRequired = false;
+                    state.memorySummary = buildMemorySummary(
+                            state.requirement, state.assessment, state.toolPlan, state.review,
+                            false, state.completedRevisions);
+                    return AgentNodeResult.completed(state.memorySummary);
+                })
+                .build();
+    }
+
+    private PrototypeAgentExecution toExecution(AgentRunResult<PrototypeWorkflowState> result) {
+        PrototypeWorkflowState state = result.state();
+        return PrototypeAgentExecution.builder()
+                .html(state.finalHtml)
+                .review(state.review)
+                .steps(toAgentSteps(result.steps()))
+                .clarificationRequired(state.clarificationRequired)
+                .clarificationQuestions(state.assessment == null ? List.of() : state.assessment.questions())
+                .memorySummary(state.memorySummary)
+                .build();
+    }
+
+    private List<PrdAgentStep> toAgentSteps(List<AgentRuntimeStep> runtimeSteps) {
+        return runtimeSteps.stream()
+                .map(step -> PrdAgentStep.builder()
+                        .name(step.nodeName())
+                        .tool(step.toolName())
+                        .status(step.status())
+                        .summary(step.summary())
+                        .elapsedMillis(step.elapsedMillis())
+                        .build())
+                .toList();
+    }
+
+    private PrototypeAgentExecution runLegacy(Requirement requirement, PrdDocument prdDocument) {
         List<PrdAgentStep> steps = new ArrayList<>();
 
         PrototypeAutonomyAssessment assessment = executeStep(steps, "assess-autonomy", "PrototypePlanner",
@@ -815,14 +948,27 @@ public class PrototypeAgent {
                 .replace("\"", "&quot;");
     }
 
-    private record PrototypeAutonomyAssessment(
+    public record PrototypeAutonomyAssessment(
             boolean clarificationRequired,
             List<String> questions,
             List<String> pagePatterns,
             String decision) {
     }
 
-    private record PrototypeToolPlan(List<String> toolNames, List<String> reasons) {
+    public record PrototypeToolPlan(List<String> toolNames, List<String> reasons) {
+    }
+
+    public static class PrototypeWorkflowState {
+        public Requirement requirement;
+        public PrdDocument prdDocument;
+        public PrototypeAutonomyAssessment assessment;
+        public PrototypeToolPlan toolPlan;
+        public String toolContext;
+        public String finalHtml;
+        public PrototypeAgentReview review;
+        public int completedRevisions;
+        public boolean clarificationRequired;
+        public String memorySummary;
     }
 
     @FunctionalInterface

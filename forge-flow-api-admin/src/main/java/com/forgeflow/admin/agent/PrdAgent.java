@@ -3,6 +3,11 @@ package com.forgeflow.admin.agent;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.forgeflow.admin.agent.runtime.AgentNodeResult;
+import com.forgeflow.admin.agent.runtime.AgentRunResult;
+import com.forgeflow.admin.agent.runtime.AgentRuntime;
+import com.forgeflow.admin.agent.runtime.AgentRuntimeStep;
+import com.forgeflow.admin.agent.runtime.AgentWorkflow;
 import com.forgeflow.dao.domain.PrdDocument;
 import com.forgeflow.dao.domain.Requirement;
 import com.forgeflow.dao.mapper.PrdDocumentMapper;
@@ -97,6 +102,9 @@ public class PrdAgent {
     @Resource
     private PrdDocumentMapper prdDocumentMapper;
 
+    @Resource
+    private AgentRuntime agentRuntime;
+
     public RequirementAnalysis analyze(Requirement requirement) {
         try {
             String userPrompt = buildAnalysisUserPrompt(requirement);
@@ -187,6 +195,124 @@ public class PrdAgent {
     }
 
     public PrdAgentExecution run(Requirement requirement, RequirementAnalysis analysis) {
+        return startRuntime(null, requirement.getProjectId(), null, requirement, analysis);
+    }
+
+    public PrdAgentExecution run(Long taskId, Long projectId, Long operatorId, Requirement requirement) {
+        return startRuntime(taskId, projectId, operatorId, requirement, null);
+    }
+
+    public PrdAgentExecution resume(Long taskId, Long projectId, Long operatorId, Requirement requirement) {
+        PrdWorkflowState refreshedState = new PrdWorkflowState();
+        refreshedState.requirement = requirement;
+        AgentRunResult<PrdWorkflowState> result = agentRuntime.resume(
+                taskId, operatorId, workflow(), refreshedState);
+        return toExecution(result);
+    }
+
+    private PrdAgentExecution startRuntime(
+            Long taskId,
+            Long projectId,
+            Long operatorId,
+            Requirement requirement,
+            RequirementAnalysis analysis) {
+        PrdWorkflowState initialState = new PrdWorkflowState();
+        initialState.requirement = requirement;
+        initialState.analysis = analysis;
+        AgentRunResult<PrdWorkflowState> result = agentRuntime.start(
+                taskId, projectId, operatorId, workflow(), initialState);
+        return toExecution(result);
+    }
+
+    private AgentWorkflow<PrdWorkflowState> workflow() {
+        return AgentWorkflow.builder("PRD", PrdWorkflowState.class)
+                .startAt("analyze-requirement")
+                .node("analyze-requirement", "RequirementAnalysisTool", state -> {
+                    if (state.analysis == null) {
+                        state.analysis = analyze(state.requirement);
+                    }
+                    return AgentNodeResult.next("assess-autonomy", stepSummary(state.analysis));
+                })
+                .node("assess-autonomy", "AutonomousPrdPlanner", state -> {
+                    state.assessment = assessAutonomy(state.requirement, state.analysis);
+                    String nextNode = state.assessment.clarificationRequired() ? "request-clarification" : "select-tools";
+                    return AgentNodeResult.next(nextNode, stepSummary(state.assessment));
+                })
+                .node("request-clarification", "ClarificationTool", state -> {
+                    state.clarificationRequired = true;
+                    state.finalPrd = buildClarificationDocument(state.requirement, state.analysis, state.assessment);
+                    state.review = PrdAgentReview.builder()
+                            .passed(false)
+                            .summary("Agent stopped before generation and requested user clarification.")
+                            .issues(state.assessment.questions())
+                            .suggestions(List.of("Complete the clarification questions and resume the task."))
+                            .build();
+                    state.memorySummary = buildMemorySummary(
+                            state.requirement, state.assessment, null, state.review, true, 0);
+                    return AgentNodeResult.waiting("analyze-requirement", toMarkdownList(state.assessment.questions()));
+                })
+                .node("select-tools", "PrdToolPlanner", state -> {
+                    state.toolPlan = planTools(state.requirement, state.analysis);
+                    return AgentNodeResult.next("call-tools", stepSummary(state.toolPlan));
+                })
+                .node("call-tools", "PrdToolRegistry", state -> {
+                    state.toolContext = executeSelectedTools(state.requirement, state.analysis, state.toolPlan);
+                    return AgentNodeResult.next("generate-draft", stepSummary(state.toolContext));
+                })
+                .node("generate-draft", "PrdDraftGeneratorTool", state -> {
+                    state.finalPrd = generatePrdDraftDynamic(state.requirement, state.analysis, state.toolContext);
+                    return AgentNodeResult.next("review-draft", stepSummary(state.finalPrd));
+                })
+                .node("review-draft", "PrdReviewTool", state -> {
+                    state.review = reviewPrdDynamic(state.requirement, state.analysis, state.finalPrd);
+                    boolean needsRevision = (!state.review.passed() || !state.review.issues().isEmpty())
+                            && state.completedRevisions < 2;
+                    return AgentNodeResult.next(needsRevision ? "revise-draft" : "memory-save",
+                            stepSummary(state.review));
+                })
+                .node("revise-draft", "PrdRevisionTool", state -> {
+                    state.finalPrd = revisePrdDynamic(
+                            state.requirement, state.analysis, state.finalPrd, state.review, state.toolContext);
+                    state.completedRevisions++;
+                    return AgentNodeResult.next("review-draft",
+                            "revision=" + state.completedRevisions + "; " + stepSummary(state.finalPrd));
+                })
+                .node("memory-save", "PrdMemoryTool", state -> {
+                    state.clarificationRequired = false;
+                    state.memorySummary = buildMemorySummary(
+                            state.requirement, state.assessment, state.toolPlan, state.review,
+                            false, state.completedRevisions);
+                    return AgentNodeResult.completed(state.memorySummary);
+                })
+                .build();
+    }
+
+    private PrdAgentExecution toExecution(AgentRunResult<PrdWorkflowState> result) {
+        PrdWorkflowState state = result.state();
+        return PrdAgentExecution.builder()
+                .analysis(state.analysis)
+                .prdMarkdown(state.finalPrd)
+                .review(state.review)
+                .steps(toAgentSteps(result.steps()))
+                .clarificationRequired(state.clarificationRequired)
+                .clarificationQuestions(state.assessment == null ? List.of() : state.assessment.questions())
+                .memorySummary(state.memorySummary)
+                .build();
+    }
+
+    private List<PrdAgentStep> toAgentSteps(List<AgentRuntimeStep> runtimeSteps) {
+        return runtimeSteps.stream()
+                .map(step -> PrdAgentStep.builder()
+                        .name(step.nodeName())
+                        .tool(step.toolName())
+                        .status(step.status())
+                        .summary(step.summary())
+                        .elapsedMillis(step.elapsedMillis())
+                        .build())
+                .toList();
+    }
+
+    private PrdAgentExecution runLegacy(Requirement requirement, RequirementAnalysis analysis) {
         List<PrdAgentStep> steps = new ArrayList<>();
 
         AutonomyAssessment assessment = executeStep(steps, "assess-autonomy", "AutonomousPrdPlanner",
@@ -385,7 +511,7 @@ public class PrdAgent {
         return items;
     }
 
-    private record AutonomyAssessment(boolean clarificationRequired, List<String> questions, String decision) {
+    public record AutonomyAssessment(boolean clarificationRequired, List<String> questions, String decision) {
     }
 
     private PrdToolPlan planTools(Requirement requirement, RequirementAnalysis analysis) {
@@ -510,7 +636,7 @@ public class PrdAgent {
         return "tools=" + String.join(",", plan.toolNames()) + "; reasons=" + String.join(" | ", plan.reasons());
     }
 
-    private record PrdToolPlan(List<String> toolNames, List<String> reasons) {
+    public record PrdToolPlan(List<String> toolNames, List<String> reasons) {
     }
 
     private String generatePrdDraftDynamic(Requirement requirement, RequirementAnalysis analysis, String knowledgeContext) {
@@ -1054,6 +1180,19 @@ public class PrdAgent {
 
     private String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : "待补充";
+    }
+
+    public static class PrdWorkflowState {
+        public Requirement requirement;
+        public RequirementAnalysis analysis;
+        public AutonomyAssessment assessment;
+        public PrdToolPlan toolPlan;
+        public String toolContext;
+        public String finalPrd;
+        public PrdAgentReview review;
+        public int completedRevisions;
+        public boolean clarificationRequired;
+        public String memorySummary;
     }
 
     @FunctionalInterface
