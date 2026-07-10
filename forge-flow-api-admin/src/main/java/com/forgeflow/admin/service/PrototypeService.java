@@ -7,5 +7,7 @@ public interface PrototypeService {
 
     RespPrototypeArtifactVo generate(ReqGeneratePrototypeVo reqVo);
 
+    RespPrototypeArtifactVo resume(Long taskId);
+
     RespPrototypeArtifactVo getLatest(Long projectId);
 }

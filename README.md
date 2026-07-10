@@ -33,6 +33,19 @@ Initialize the first tables with:
 database/schema.sql
 ```
 
+Then apply incremental migrations in date order:
+
+```text
+database/20260701_llm_call_log.sql
+database/20260701_prototype_artifact.sql
+database/20260706_generation_task_step.sql
+database/20260710_agent_runtime.sql
+```
+
+The Agent Runtime migration adds durable checkpoints used by PRD and Prototype task resume.
+
+See [Agent-Runtime.md](Agent-Runtime.md) for workflow states, graph definitions, and resume APIs.
+
 Sensitive configuration such as database password, Gitea token, LLM API key, and MinIO secret is intentionally empty by default.
 
 ## Build

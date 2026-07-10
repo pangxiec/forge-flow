@@ -8,6 +8,8 @@ public interface PrdService {
 
     RespPrdDocumentVo generate(ReqGeneratePrdVo reqVo);
 
+    RespPrdDocumentVo resume(Long taskId);
+
     RespPrdDocumentVo confirm(ReqConfirmPrdVo reqVo);
 
     RespPrdDocumentVo getLatest(Long projectId);

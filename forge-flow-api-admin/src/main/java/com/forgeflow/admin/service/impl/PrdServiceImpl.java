@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.forgeflow.admin.agent.PrdAgent;
 import com.forgeflow.admin.agent.PrdAgentExecution;
 import com.forgeflow.admin.service.AuditLogService;
-import com.forgeflow.admin.service.GenerationTaskStepService;
 import com.forgeflow.admin.service.PrdService;
 import com.forgeflow.common.enums.ProjectStatusEnum;
 import com.forgeflow.common.enums.UserRoleEnum;
@@ -30,10 +29,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class PrdServiceImpl implements PrdService {
 
     private static final String PRD_STATUS_REVIEWING = "PRD_REVIEWING";
+    private static final String PRD_STATUS_WAITING_USER = "WAITING_USER";
     private static final String PRD_STATUS_CONFIRMED = "PRD_CONFIRMED";
     private static final String TASK_TYPE_PRD_GENERATE = "PRD";
     private static final String TASK_STATUS_RUNNING = "RUNNING";
     private static final String TASK_STATUS_SUCCESS = "SUCCESS";
+    private static final String TASK_STATUS_WAITING_USER = "WAITING_USER";
+    private static final String TASK_STATUS_FAILED = "FAILED";
     private static final String BAILIAN_AGENT = "BAILIAN_PRD_AGENT";
 
     @Resource
@@ -49,16 +51,12 @@ public class PrdServiceImpl implements PrdService {
     private GenerationTaskMapper generationTaskMapper;
 
     @Resource
-    private GenerationTaskStepService generationTaskStepService;
-
-    @Resource
     private AuditLogService auditLogService;
 
     @Resource
     private PrdAgent prdAgent;
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public RespPrdDocumentVo generate(ReqGeneratePrdVo reqVo) {
         Project project = getProject(reqVo.getProjectId());
         Requirement requirement = getRequirement(reqVo.getProjectId(), reqVo.getRequirementId());
@@ -74,7 +72,14 @@ public class PrdServiceImpl implements PrdService {
         task.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
         generationTaskMapper.insert(task);
 
-        PrdAgentExecution execution = prdAgent.run(requirement);
+        PrdAgentExecution execution;
+        try {
+            execution = prdAgent.run(task.getId(), project.getId(),
+                    operatorId(reqVo.getOperatorId(), project), requirement);
+        } catch (RuntimeException e) {
+            markTaskFailed(task, e);
+            throw e;
+        }
         PrdAgent.RequirementAnalysis analysis = execution.analysis();
         requirement.setStructuredSummary(analysis.structuredSummary());
         requirement.setMissingInfo(analysis.missingInfo());
@@ -87,23 +92,23 @@ public class PrdServiceImpl implements PrdService {
         prdDocument.setRequirementId(requirement.getId());
         prdDocument.setTitle(requirement.getTitle() + " PRD");
         prdDocument.setContent(execution.prdMarkdown());
-        prdDocument.setStatus(PRD_STATUS_REVIEWING);
+        prdDocument.setStatus(execution.clarificationRequired() ? PRD_STATUS_WAITING_USER : PRD_STATUS_REVIEWING);
         prdDocument.setVersionNo(nextPrdVersion(project.getId()));
         prdDocument.setCreatedBy(operatorId(reqVo.getOperatorId(), project));
         prdDocument.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
         prdDocumentMapper.insert(prdDocument);
 
-        task.setStatus(TASK_STATUS_SUCCESS);
+        task.setStatus(execution.clarificationRequired() ? TASK_STATUS_WAITING_USER : TASK_STATUS_SUCCESS);
         task.setOutputArtifactId(prdDocument.getId());
-        task.setFinishedAt(LocalDateTime.now());
+        task.setFinishedAt(execution.clarificationRequired() ? null : LocalDateTime.now());
         generationTaskMapper.updateById(task);
-        generationTaskStepService.savePrdAgentSteps(task.getId(), project.getId(),
-                operatorId(reqVo.getOperatorId(), project), execution.steps());
 
-        project.setCurrentStage(ProjectStatusEnum.PRD_REVIEWING.getCode());
-        project.setStatus(ProjectStatusEnum.PRD_REVIEWING.getCode());
-        project.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
-        projectMapper.updateById(project);
+        if (!execution.clarificationRequired()) {
+            project.setCurrentStage(ProjectStatusEnum.PRD_REVIEWING.getCode());
+            project.setStatus(ProjectStatusEnum.PRD_REVIEWING.getCode());
+            project.setUpdatedBy(operatorId(reqVo.getOperatorId(), project));
+            projectMapper.updateById(project);
+        }
 
         auditLogService.record(operatorId(reqVo.getOperatorId(), project), UserRoleEnum.PRODUCT_MANAGER.getCode(),
                 "GENERATE_PRD", "PRD_DOCUMENT", prdDocument.getId(), null, prdDocument.getTitle());
@@ -111,6 +116,65 @@ public class PrdServiceImpl implements PrdService {
         RespPrdDocumentVo respVo = convert(prdDocument);
         respVo.setTaskId(task.getId());
         return respVo;
+    }
+
+    @Override
+    public RespPrdDocumentVo resume(Long taskId) {
+        GenerationTask task = getResumableTask(taskId, TASK_TYPE_PRD_GENERATE);
+        Project project = getProject(task.getProjectId());
+        Requirement requirement = getRequirement(project.getId(), task.getInputArtifactId());
+        Long operatorId = task.getCreatedBy() == null ? project.getManagerId() : task.getCreatedBy();
+        task.setStatus(TASK_STATUS_RUNNING);
+        task.setErrorMessage(null);
+        generationTaskMapper.updateById(task);
+
+        PrdAgentExecution execution;
+        try {
+            execution = prdAgent.resume(task.getId(), project.getId(), operatorId, requirement);
+        } catch (RuntimeException e) {
+            markTaskFailed(task, e);
+            throw e;
+        }
+
+        PrdAgent.RequirementAnalysis analysis = execution.analysis();
+        requirement.setStructuredSummary(analysis.structuredSummary());
+        requirement.setMissingInfo(analysis.missingInfo());
+        requirement.setClarificationQuestions(analysis.clarificationQuestions());
+        requirement.setUpdatedBy(operatorId);
+        requirementMapper.updateById(requirement);
+
+        PrdDocument prdDocument = task.getOutputArtifactId() == null
+                ? null : prdDocumentMapper.selectById(task.getOutputArtifactId());
+        if (prdDocument == null) {
+            prdDocument = new PrdDocument();
+            prdDocument.setProjectId(project.getId());
+            prdDocument.setRequirementId(requirement.getId());
+            prdDocument.setTitle(requirement.getTitle() + " PRD");
+            prdDocument.setVersionNo(nextPrdVersion(project.getId()));
+            prdDocument.setCreatedBy(operatorId);
+        }
+        prdDocument.setContent(execution.prdMarkdown());
+        prdDocument.setStatus(execution.clarificationRequired() ? PRD_STATUS_WAITING_USER : PRD_STATUS_REVIEWING);
+        prdDocument.setUpdatedBy(operatorId);
+        if (prdDocument.getId() == null) {
+            prdDocumentMapper.insert(prdDocument);
+        } else {
+            prdDocumentMapper.updateById(prdDocument);
+        }
+
+        task.setOutputArtifactId(prdDocument.getId());
+        task.setStatus(execution.clarificationRequired() ? TASK_STATUS_WAITING_USER : TASK_STATUS_SUCCESS);
+        task.setFinishedAt(execution.clarificationRequired() ? null : LocalDateTime.now());
+        generationTaskMapper.updateById(task);
+        if (!execution.clarificationRequired()) {
+            project.setCurrentStage(ProjectStatusEnum.PRD_REVIEWING.getCode());
+            project.setStatus(ProjectStatusEnum.PRD_REVIEWING.getCode());
+            project.setUpdatedBy(operatorId);
+            projectMapper.updateById(project);
+        }
+        RespPrdDocumentVo response = convert(prdDocument);
+        response.setTaskId(task.getId());
+        return response;
     }
 
     @Override
@@ -153,6 +217,24 @@ public class PrdServiceImpl implements PrdService {
             throw new BizException("project not found");
         }
         return project;
+    }
+
+    private GenerationTask getResumableTask(Long taskId, String taskType) {
+        GenerationTask task = generationTaskMapper.selectById(taskId);
+        if (task == null || !taskType.equals(task.getTaskType())) {
+            throw new BizException("generation task not found");
+        }
+        if (TASK_STATUS_SUCCESS.equals(task.getStatus())) {
+            throw new BizException("generation task is already completed");
+        }
+        return task;
+    }
+
+    private void markTaskFailed(GenerationTask task, RuntimeException error) {
+        task.setStatus(TASK_STATUS_FAILED);
+        task.setErrorMessage(error.getMessage());
+        task.setFinishedAt(null);
+        generationTaskMapper.updateById(task);
     }
 
     private Requirement getRequirement(Long projectId, Long requirementId) {

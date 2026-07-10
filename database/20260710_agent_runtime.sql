@@ -1,0 +1,22 @@
+CREATE TABLE agent_checkpoint (
+  id BIGINT PRIMARY KEY COMMENT 'Primary key',
+  task_id BIGINT NOT NULL COMMENT 'Generation task ID',
+  project_id BIGINT NOT NULL COMMENT 'Project ID',
+  agent_type VARCHAR(64) NOT NULL COMMENT 'Agent workflow type',
+  status VARCHAR(64) NOT NULL COMMENT 'Runtime status',
+  current_node VARCHAR(128) NULL COMMENT 'Last/current node',
+  next_node VARCHAR(128) NULL COMMENT 'Node to execute when resumed',
+  state_json LONGTEXT NOT NULL COMMENT 'Serialized workflow state',
+  step_sequence INT NOT NULL DEFAULT 0 COMMENT 'Durable step sequence',
+  checkpoint_version INT NOT NULL DEFAULT 1 COMMENT 'Checkpoint revision',
+  last_error TEXT NULL COMMENT 'Last runtime error',
+  created_at DATETIME NOT NULL COMMENT 'Created time',
+  updated_at DATETIME NOT NULL COMMENT 'Updated time',
+  created_by BIGINT NULL COMMENT 'Creator ID',
+  updated_by BIGINT NULL COMMENT 'Updater ID',
+  deleted TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical deletion flag',
+  version INT NOT NULL DEFAULT 1 COMMENT 'Optimistic lock version',
+  UNIQUE KEY uk_agent_checkpoint_task_id (task_id),
+  KEY idx_agent_checkpoint_project_id (project_id),
+  KEY idx_agent_checkpoint_status (status)
+) COMMENT='Durable agent runtime checkpoint';

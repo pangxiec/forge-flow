@@ -158,13 +158,13 @@
         <div class="panel-header">
           <div>
             <h2>Agent 执行轨迹</h2>
-            <p>{{ prdDocument?.taskId ? `Task ${prdDocument.taskId}` : '生成 PRD 后展示 Agent 多步执行过程。' }}</p>
+            <p>{{ activeAgentTaskId ? `Task ${activeAgentTaskId}` : '生成 PRD 或原型后展示 Agent 多步执行过程。' }}</p>
           </div>
           <div class="agent-trace-tools">
             <el-tag :type="agentTraceSteps.length ? 'success' : 'info'" effect="light">
               {{ agentTraceSteps.length ? `${agentTraceSteps.length} steps` : '暂无轨迹' }}
             </el-tag>
-            <el-button :icon="Refresh" :loading="loadingAgentTrace" :disabled="!prdDocument?.taskId" @click="loadAgentTrace">
+            <el-button :icon="Refresh" :loading="loadingAgentTrace" :disabled="!activeAgentTaskId" @click="loadAgentTrace">
               刷新
             </el-button>
           </div>
@@ -640,6 +640,13 @@ const isHtmlPrototype = computed(() => {
 
 const prototypeFrameHtml = computed(() => (isHtmlPrototype.value ? prototypeArtifact.value?.content || '' : ''))
 
+const activeAgentTaskId = computed(() => {
+  if (activeFlowStep.value === 'prototype' && prototypeArtifact.value?.taskId) {
+    return prototypeArtifact.value.taskId
+  }
+  return prototypeArtifact.value?.taskId || prdDocument.value?.taskId || ''
+})
+
 const flowSteps = computed<FlowStep[]>(() => {
   const hasRequirement = Boolean(requirementRecord.value || selectedRequirementId.value || analysisResult.value || prdDocument.value)
   const hasAnalysis = Boolean(analysisResult.value)
@@ -1080,13 +1087,14 @@ async function loadLatestPrd(showMessage = true) {
 }
 
 async function loadAgentTrace(showMessage = true) {
-  if (!prdDocument.value?.taskId) {
+  const taskId = activeAgentTaskId.value
+  if (!taskId) {
     agentTraceSteps.value = []
     return false
   }
   loadingAgentTrace.value = true
   try {
-    agentTraceSteps.value = await getGenerationTaskSteps(prdDocument.value.taskId)
+    agentTraceSteps.value = await getGenerationTaskSteps(taskId)
     if (showMessage) {
       ElMessage.success('已刷新 Agent 执行轨迹')
     }
@@ -1141,6 +1149,7 @@ async function generateCurrentPrototype() {
       operatorId: 1,
     })
     activeFlowStep.value = 'prototype'
+    await loadAgentTrace(false)
     ElMessage.success('原型说明已生成')
   } catch {
     ElMessage.warning('原型生成失败，请稍后重试')
@@ -1159,6 +1168,7 @@ async function loadLatestPrototype(showMessage = true) {
   loadingPrototype.value = true
   try {
     prototypeArtifact.value = await getLatestPrototype(selectedProjectId.value)
+    await loadAgentTrace(false)
     if (showMessage) {
       activeFlowStep.value = 'prototype'
     }
